@@ -4,9 +4,9 @@
 **Track:** Track 2 — Operations (The Procurement Exception Commander)
 **Build:** The Procurement Exception Command Center
 
-**Auto workspace:** [PASTE YOUR auto.supervity.ai WORKSPACE LINK HERE]
+**Auto workspace:** https://auto.supervity.ai/u/alpha/agent/workflow/019f7688-7462-7000-9adf-432a88669ebb?tab=Workflow
 **Repository:** https://github.com/IhandZZ/AutoPilot-Template
-**Running instance:** Local instance (http://localhost:3001), run live from my laptop during the showcase slot — API docs at http://localhost:8001/api/docs.
+**Running instance:** https://catsup-rimless-kindred.ngrok-free.dev (tunneled live from my laptop during the judging window) — API docs at https://catsup-rimless-kindred.ngrok-free.dev/api/docs.
 
 ## Outcome metric
 

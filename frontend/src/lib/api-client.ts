@@ -1,4 +1,8 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+// Explicit undefined-check, not `||`: an intentionally empty string
+// (same-origin mode, proxied via next.config.ts's rewrites()) is falsy in
+// JS and would otherwise get silently overridden back to the localhost
+// default, breaking the single-public-URL ngrok setup.
+const API_URL = process.env.NEXT_PUBLIC_API_URL !== undefined ? process.env.NEXT_PUBLIC_API_URL : 'http://localhost:8001'
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
 // FastAPI's default validation-error shape puts `detail` as an array of

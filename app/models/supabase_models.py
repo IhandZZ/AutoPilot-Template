@@ -154,6 +154,32 @@ class DisruptionNotice(SupabaseBase):
     confidence = Column(Numeric)
 
 
+class DemandSignal(SupabaseBase):
+    __tablename__ = "demand_signals"
+
+    id = Column(BigInteger, primary_key=True)
+    signal_date = Column(Text)
+    item_number = Column(Text)
+    forecast_qty = Column(Numeric)
+    actual_demand = Column(Numeric)
+    channel = Column(Text)
+
+
+class InventoryPosition(SupabaseBase):
+    __tablename__ = "inventory_positions"
+
+    id = Column(BigInteger, primary_key=True)
+    item_number = Column(Text)
+    description = Column(Text)
+    location = Column(Text)
+    on_hand_qty = Column(Numeric)
+    safety_stock = Column(Numeric)
+    reorder_point = Column(Numeric)
+    unit_cost = Column(Numeric)
+    uom = Column(Text)
+    committed_qty = Column(Numeric)
+
+
 class Supplier(SupabaseBase):
     __tablename__ = "suppliers"
 

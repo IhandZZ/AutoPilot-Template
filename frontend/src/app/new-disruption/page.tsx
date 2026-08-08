@@ -209,14 +209,14 @@ export default function NewDisruptionPage() {
   }, [stopPolling, loadRecent])
 
   const handleSubmit = async () => {
-    if (!messageBody.trim()) return
+    if (!messageBody.trim() || !supplierId.trim() || !itemNumber.trim()) return
     setIsSubmitting(true)
     setError(null)
     setStatus(null)
     try {
       const res = await apiClient.post<{ notice_id: string; status: string }>('/api/notices', {
-        supplier_id: supplierId || null,
-        item_number: itemNumber || null,
+        supplier_id: supplierId,
+        item_number: itemNumber,
         notice_type: noticeType,
         message_body: messageBody,
         severity: severity || null,
@@ -437,22 +437,25 @@ export default function NewDisruptionPage() {
           <CardWatermark opacity={2} scale={1} />
           <CardContent className="relative z-10 space-y-4 py-6">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Supplier ID</label>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Supplier ID <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={supplierId}
                 onChange={(e) => setSupplierId(e.target.value)}
-                placeholder="e.g. SUP-0042 (leave blank if unknown)"
+                placeholder="e.g. 3002 — required, must match a supplier on file"
                 className="w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-cornflower/50"
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Required — Auto can&apos;t assess real inventory risk without knowing which supplier this concerns.
+              </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Item Number</label>
+              <label className="block text-sm font-medium text-foreground mb-1.5">Item Number <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={itemNumber}
                 onChange={(e) => setItemNumber(e.target.value)}
-                placeholder="e.g. ITEM-1001"
+                placeholder="e.g. SKU-CEM-101 — required, must match an item in inventory"
                 className="w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-cornflower/50"
               />
             </div>
@@ -499,7 +502,7 @@ export default function NewDisruptionPage() {
             <Button
               variant="gradient"
               className="w-full"
-              disabled={isSubmitting || !messageBody.trim()}
+              disabled={isSubmitting || !messageBody.trim() || !supplierId.trim() || !itemNumber.trim()}
               onClick={handleSubmit}
             >
               {isSubmitting ? (

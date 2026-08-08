@@ -31,11 +31,23 @@ class WorkbenchItemSummary(BaseModel):
         orm_mode = True
 
 
+class DraftCommunication(BaseModel):
+    """A ready-to-send artifact generated from the actual decision just
+    made — not a canned template with blanks, but real substituted fields
+    (supplier, item, action, notes). The app never sends this on its own;
+    it's presented for a human to review, edit, and send themselves."""
+
+    to: str
+    subject: str
+    body: str
+
+
 class WorkbenchItemDetail(WorkbenchItemSummary):
     context_json: dict[str, Any] | None = None
     human_notes: str | None = None
     run_context: dict[str, Any] | None = None
     incident: dict[str, Any] | None = None
+    draft_communication: DraftCommunication | None = None
 
     class Config:
         orm_mode = True

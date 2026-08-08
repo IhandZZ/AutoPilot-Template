@@ -15,8 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..core.supabase_db import get_supabase_db
-from ..models.supabase_models import IncidentLog, RunContext, Supplier, WorkbenchItem
+from ..models.supabase_models import DisruptionNotice, IncidentLog, RunContext, Supplier, WorkbenchItem
 from ..schemas.workbench import (
+    DraftCommunication,
     WorkbenchDecisionRequest,
     WorkbenchItemDetail,
     WorkbenchItemSummary,
@@ -32,6 +33,81 @@ def _model_to_dict(obj) -> dict | None:
     if obj is None:
         return None
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+
+
+def _format_myr(value) -> str:
+    try:
+        return f"MYR {float(value):,.0f}"
+    except (TypeError, ValueError):
+        return "MYR 0"
+
+
+def _generate_draft_communication(item: WorkbenchItem, db: Session) -> DraftCommunication | None:
+    """
+    Bonus: "richer downstream actions." Resolving a Workbench item used to
+    just write a decision row and stop there — nothing tangible came out of
+    it. This generates a real, ready-to-send artifact from the actual
+    decision just made (not a blank template): an external supplier update
+    for approve/modify, or an internal follow-up note for reject. The app
+    never sends this itself — per the safety boundary on sending messages
+    on the user's behalf, it's surfaced for a human to review, edit, and
+    send through their own email client.
+    """
+    if item.status != "resolved" or not item.human_decision:
+        return None
+
+    supplier_name = None
+    supplier_email = None
+    if item.supplier_id:
+        supplier = db.query(Supplier).filter(Supplier.id == item.supplier_id).first()
+        if supplier:
+            supplier_name = supplier.name
+            supplier_email = supplier.primary_contact_email
+
+    notice_message = None
+    if item.notice_id:
+        notice = db.query(DisruptionNotice).filter(DisruptionNotice.notice_id == item.notice_id).first()
+        if notice:
+            notice_message = notice.message_body
+
+    decision = item.human_decision.lower()
+    final_action = item.recommended_option or "the proposed recovery action"
+    item_ref = item.item_number or "the affected item"
+    value_str = _format_myr(item.value_at_risk_myr)
+
+    if decision.startswith("approve") or decision.startswith("modify"):
+        to = supplier_email or f"[no contact email on file for supplier {item.supplier_id or 'unknown'}]"
+        subject = f"Recovery Plan Confirmed — {item_ref} (Notice {item.notice_id or 'N/A'})"
+        body_lines = [
+            f"Hi {supplier_name or 'team'},",
+            "",
+            f"Following your disruption notice on {item_ref}, we've reviewed the impact "
+            f"(value at risk: {value_str}) and confirmed our recovery plan: {final_action}.",
+        ]
+        if decision.startswith("modify") and item.human_notes:
+            body_lines.append(f"Note from our procurement team: {item.human_notes}")
+        if notice_message:
+            body_lines += ["", f'Reference — your original notice: "{notice_message[:200]}"']
+        body_lines += ["", "Please confirm receipt and let us know of any further changes.", "", f"— {item.decided_by or 'Procurement Team'}"]
+        return DraftCommunication(to=to, subject=subject, body="\n".join(body_lines))
+
+    if decision.startswith("reject"):
+        to = "procurement-team@internal"
+        subject = f"Action Needed — Recommended recovery for {item_ref} was rejected (Notice {item.notice_id or 'N/A'})"
+        body_lines = [
+            "Internal follow-up:",
+            "",
+            f"The AI-recommended recovery action for {item_ref} ({value_str} at risk) — "
+            f'"{final_action}" — was rejected by {item.decided_by or "a reviewer"} and needs manual '
+            "follow-up; no automated recovery action will execute.",
+        ]
+        if item.human_notes:
+            body_lines.append(f"Reviewer's reason: {item.human_notes}")
+        if notice_message:
+            body_lines += ["", f'Original disruption notice: "{notice_message[:200]}"']
+        return DraftCommunication(to=to, subject=subject, body="\n".join(body_lines))
+
+    return None
 
 
 @router.get("/items", response_model=list[WorkbenchItemSummary])
@@ -138,6 +214,7 @@ def get_workbench_item(item_id: int, db: Session = Depends(get_supabase_db)):
         context_json=context_json,
         run_context=run_context,
         incident=incident,
+        draft_communication=_generate_draft_communication(item, db),
     )
 
 

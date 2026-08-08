@@ -30,11 +30,18 @@ interface WorkbenchItemSummary {
   created_at: string | null
 }
 
+interface DraftCommunication {
+  to: string
+  subject: string
+  body: string
+}
+
 interface WorkbenchItemDetail extends WorkbenchItemSummary {
   context_json: Record<string, unknown> | null
   human_notes: string | null
   run_context: Record<string, unknown> | null
   incident: Record<string, unknown> | null
+  draft_communication: DraftCommunication | null
 }
 
 type DecisionType = 'approve' | 'reject' | 'modify'
@@ -168,6 +175,7 @@ export default function WorkbenchPage() {
   const [modifiedOption, setModifiedOption] = useState('')
   const [isSubmitting, setIsSubmitting] = useState<DecisionType | null>(null)
   const [showRawContext, setShowRawContext] = useState(false)
+  const [copiedDraft, setCopiedDraft] = useState(false)
 
   // Stat cards need the TRUE totals regardless of which tab is active — kept
   // as a separate, always-unfiltered fetch so switching to "Resolved" (or
@@ -546,19 +554,55 @@ export default function WorkbenchPage() {
                         </div>
                       </>
                     ) : (
-                      <div className="rounded-lg bg-gray-50 p-4">
-                        <p className="text-sm font-medium text-foreground">
-                          Decision: <span className={cn('capitalize font-semibold', decisionTextColor(detail.human_decision))}>{detail.human_decision}</span> by {detail.decided_by}
-                        </p>
-                        {detail.human_notes && (
-                          <p className="mt-1 text-sm text-muted-foreground">&quot;{detail.human_notes}&quot;</p>
-                        )}
-                        {detail.decided_at && (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {new Date(detail.decided_at).toLocaleString()}
+                      <>
+                        <div className="rounded-lg bg-gray-50 p-4">
+                          <p className="text-sm font-medium text-foreground">
+                            Decision: <span className={cn('capitalize font-semibold', decisionTextColor(detail.human_decision))}>{detail.human_decision}</span> by {detail.decided_by}
                           </p>
+                          {detail.human_notes && (
+                            <p className="mt-1 text-sm text-muted-foreground">&quot;{detail.human_notes}&quot;</p>
+                          )}
+                          {detail.decided_at && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {new Date(detail.decided_at).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+
+                        {detail.draft_communication && (
+                          <div className="mt-4 rounded-lg border border-brand-cornflower/30 bg-brand-cornflower/5 p-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase text-brand-cornflower">
+                                <Icons.mail className="h-3.5 w-3.5" />
+                                Draft Communication — review &amp; send yourself
+                              </p>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const text = `To: ${detail.draft_communication!.to}\nSubject: ${detail.draft_communication!.subject}\n\n${detail.draft_communication!.body}`
+                                  navigator.clipboard?.writeText(text)
+                                  setCopiedDraft(true)
+                                  setTimeout(() => setCopiedDraft(false), 2000)
+                                }}
+                              >
+                                {copiedDraft ? (
+                                  <><Icons.check className="mr-1.5 h-3.5 w-3.5" />Copied</>
+                                ) : (
+                                  <><Icons.copy className="mr-1.5 h-3.5 w-3.5" />Copy</>
+                                )}
+                              </Button>
+                            </div>
+                            <div className="mt-2 space-y-1 text-sm">
+                              <p><span className="font-medium text-foreground">To:</span> <span className="text-muted-foreground">{detail.draft_communication.to}</span></p>
+                              <p><span className="font-medium text-foreground">Subject:</span> <span className="text-muted-foreground">{detail.draft_communication.subject}</span></p>
+                            </div>
+                            <p className="mt-2 whitespace-pre-wrap rounded-md bg-white p-3 text-sm text-foreground border border-gray-200">
+                              {detail.draft_communication.body}
+                            </p>
+                          </div>
                         )}
-                      </div>
+                      </>
                     )}
                   </CardContent>
                 </Card>

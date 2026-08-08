@@ -7,15 +7,17 @@ Workbench/Policy data pulled from Supabase so it isn't just guessing.
 """
 
 import logging
+import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..core.supabase_db import get_supabase_db
-from ..models.supabase_models import ExceptionConfig, PolicyEvaluation, WorkbenchItem
-from ..schemas.ai_chat import ChatRequest, ChatResponse
+from ..models.supabase_models import DisruptionNotice, ExceptionConfig, PolicyEvaluation, WorkbenchItem
+from ..schemas.ai_chat import ChatRequest, ChatResponse, ToolCall
 from ..services.gemini import GeminiNotConfigured, GeminiRateLimited, generate
+from ..services.supervity import SupervityNotConfigured, trigger_workflow
 
 log = logging.getLogger(__name__)
 
@@ -23,13 +25,29 @@ router = APIRouter(prefix="/ai", tags=["AI Manager"])
 
 SYSTEM_PROMPT_TEMPLATE = """You are the AI Manager for the Procurement Exception Command Center — an AI Employee that monitors supplier disruption notices, evaluates policies, and routes exceptions to a human Workbench when it can't safely decide on its own.
 
-You are speaking with the operator running this Command Center. Be concise and concrete, and ground your answers in the live snapshot below rather than guessing. Orchestration (the Intake/Impact/Recovery/Execute agents) runs on the Supervity Auto platform, not here — you are the assistant layered on top of the Command Center UI. If asked to create or edit a policy, explain that policies are stored in the exception_config table (visible on the AI Policies page) and ask for the key/value/description, but don't claim to have made the change yourself unless a tool result confirms it.
+You are speaking with the operator running this Command Center. Be concise and concrete, and ground your answers in the live snapshot below rather than guessing. Orchestration (the Intake/Impact/Recovery/Execute agents) runs on the Supervity Auto platform, but the operator CAN trigger or re-trigger a run from right here in this chat — if they ask how, tell them to type something like "re-run DN-EXT-XXXXXXXX" with the real notice ID, which fires the Orchestrator directly (handled outside of you, deterministically, before you ever see the message). If asked to create or edit a policy, explain that policies are stored in the exception_config table (visible on the AI Policies page) and ask for the key/value/description, but don't claim to have made the change yourself unless a tool result confirms it.
 
 Live snapshot:
 {snapshot}
 
 The operator is currently viewing: {page}
 """
+
+# Matches disruption notice IDs like DN-EXT-BC318736 anywhere in the message.
+NOTICE_ID_RE = re.compile(r"\bDN-EXT-[0-9A-Fa-f]{8}\b", re.IGNORECASE)
+TRIGGER_KEYWORDS = (
+    "re-run", "rerun", "re-trigger", "retrigger", "trigger", "run again", "resubmit", "kick off", "restart",
+)
+
+
+def _run_trigger_in_background(notice_id: str) -> None:
+    try:
+        result = trigger_workflow(notice_id)
+        log.info("AI Manager-triggered Supervity workflow finished for %s: %s", notice_id, result.get("status"))
+    except SupervityNotConfigured as e:
+        log.warning("Supervity not configured, skipping AI Manager trigger for %s: %s", notice_id, e)
+    except Exception:
+        log.exception("AI Manager-triggered Supervity workflow failed for %s", notice_id)
 
 
 def _snapshot(db: Session) -> str:
@@ -45,7 +63,43 @@ def _snapshot(db: Session) -> str:
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(payload: ChatRequest, db: Session = Depends(get_supabase_db)):
+def chat(payload: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_supabase_db)):
+    message = payload.message or ""
+
+    # Let the operator trigger or re-trigger the Auto Orchestrator directly
+    # from this chat (Round 2 requirement: the AI Manager must let a person
+    # "trigger or re-trigger an Operator from the same place"). Handled
+    # deterministically via keyword + notice-ID matching rather than left to
+    # the LLM to decide whether to call a tool, so it's reliable to demo.
+    notice_match = NOTICE_ID_RE.search(message)
+    wants_trigger = any(kw in message.lower() for kw in TRIGGER_KEYWORDS)
+    if notice_match and wants_trigger:
+        notice_id = notice_match.group(0).upper()
+        notice = db.query(DisruptionNotice).filter(DisruptionNotice.notice_id == notice_id).first()
+        if notice is None:
+            return ChatResponse(
+                response=(
+                    f"I couldn't find a notice with ID {notice_id} — double-check it against the "
+                    "New Disruption or Workbench pages."
+                )
+            )
+        background_tasks.add_task(_run_trigger_in_background, notice_id)
+        return ChatResponse(
+            response=(
+                f"Triggering the Orchestrator for {notice_id} now — it runs through all Operators "
+                f"in the background. Check its status on the New Disruption page, or GET "
+                f"/notices/{notice_id}/status, in a minute or two."
+            ),
+            tool_calls=[
+                ToolCall(
+                    id=f"trigger-{notice_id}",
+                    name="trigger_workflow",
+                    args={"notice_id": notice_id},
+                    result={"status": "queued"},
+                )
+            ],
+        )
+
     page = payload.context.page if payload.context else None
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(snapshot=_snapshot(db), page=page or "unknown")
     history = [{"role": m.role, "content": m.content} for m in payload.history]

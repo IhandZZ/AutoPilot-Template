@@ -46,7 +46,9 @@ Copy-Item .env.example .env
 copy .env.example .env
 ```
 
-> The default `.env` works out of the box — `AUTH_BYPASS=true` means no external auth setup needed. The app starts with a "Dev User" session automatically.
+> `AUTH_BYPASS=true` means no auth setup needed — the app starts with a "Dev User" session automatically, and the containers boot with just the copied `.env`.
+>
+> **However**, this app is wired to real, live external services: a Supervity Auto workflow that actually processes disruption notices, and a Supabase project that's the system of record for all procurement data. Those sections in `.env.example` are intentionally left blank (not committed, for security) — without real values there, the UI loads but every meaningful feature (submitting notices, the Workbench queue, AI Policies, Insights, the Dashboard) will be empty or non-functional. Request the live credentials from the team rather than trying to spin this up standalone.
 
 ### Step 3: Start Docker Desktop
 
@@ -324,6 +326,10 @@ AutoPilot-Template/
 | `APP_ENV` | `development` | Backend mode |
 | `DATABASE_URL` | auto-generated | PostgreSQL connection |
 | `FRONTEND_URL` | `http://localhost:3001` | CORS origin |
+| `SUPERVITY_API_KEY` | *(none — required)* | Auth for the Supervity Auto workspace that processes every disruption notice |
+| `SUPERVITY_WORKFLOW_ID` | *(none — required)* | The "Procurement Exception Commander" orchestrator's workflow ID |
+| `SUPABASE_DB_URL` | *(none — required)* | Live Supabase Postgres connection — the real system of record, also read directly by Supervity's Operators |
+| `GEMINI_API_KEY` | *(none — optional)* | Powers AI Policies analysis, Insights narrative, and AI Manager chat; app degrades gracefully without it |
 
 ---
 

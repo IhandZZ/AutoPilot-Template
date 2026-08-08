@@ -62,18 +62,20 @@ LIVE_CHECKS = [
 
 # Integrations connected on the Auto platform side (Phase A setup), not
 # through this backend — reported as configured rather than polled.
+#
+# Jira was removed from this list: it was never actually exercised with real
+# data (no ticket was ever genuinely created from a run), so per the Round 2
+# guide (8.4: "an integration that is connected but unused... does not count
+# toward the floor") it doesn't belong here. Claiming it worked when it
+# doesn't is a disqualification risk under 12.5 if a judge asks to see it
+# live. Slack and Outlook are both confirmed to have actually fired real
+# runs (verified against Auto's own Audit Trail), so they stay.
 STATIC_INTEGRATIONS = [
     {
         "name": "Slack",
         "category": "Channel",
         "status": "configured",
         "detail": "#procurement-commander — human-approval + escalation notifications",
-    },
-    {
-        "name": "Jira",
-        "category": "System of Record",
-        "status": "configured",
-        "detail": "Project SCRUM — recovery task creation",
     },
     {
         "name": "Outlook",

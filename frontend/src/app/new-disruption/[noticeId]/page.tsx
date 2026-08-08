@@ -51,6 +51,25 @@ function isRejectDecision(value: string | null): boolean {
   return (value || '').toLowerCase().startsWith('reject')
 }
 
+// Matches the color scheme used everywhere else severity is shown
+// (Workbench's severityConfig, AI Insights' getSeverityConfig, and the
+// New Disruption list page's severityBadgeClass).
+function severityBadgeClass(severity: string | null): string {
+  switch ((severity || '').toLowerCase()) {
+    case 'critical':
+      return 'bg-red-100 text-red-700'
+    case 'high':
+      return 'bg-red-100 text-red-600'
+    case 'warning':
+    case 'medium':
+      return 'bg-amber-100 text-amber-700'
+    case 'low':
+      return 'bg-sky-100 text-sky-600'
+    default:
+      return 'bg-blue-100 text-blue-700'
+  }
+}
+
 function formatMYR(value: unknown): string {
   const num = Number(value)
   if (!value || Number.isNaN(num)) return '—'
@@ -173,7 +192,7 @@ export default function NoticeDetailPage() {
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {severity && (
-                <span className="rounded-full bg-gray-800 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold uppercase', severityBadgeClass(severity))}>
                   {severity}
                 </span>
               )}
@@ -279,7 +298,7 @@ export default function NoticeDetailPage() {
                       </span>
                       {decidedBy ? ` by ${decidedBy}` : ''}
                     </p>
-                    {humanNotes && <p className="mt-1 text-sm text-muted-foreground">&quot;{humanNotes}&quot;</p>}
+                    {humanNotes && <p className="mt-1 text-sm text-muted-foreground line-clamp-4">&quot;{humanNotes}&quot;</p>}
                     {decidedAt && <p className="mt-1 text-xs text-muted-foreground">{new Date(decidedAt).toLocaleString()}</p>}
                   </div>
                 )}

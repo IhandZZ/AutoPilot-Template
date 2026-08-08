@@ -560,7 +560,7 @@ export default function WorkbenchPage() {
                             Decision: <span className={cn('capitalize font-semibold', decisionTextColor(detail.human_decision))}>{detail.human_decision}</span> by {detail.decided_by}
                           </p>
                           {detail.human_notes && (
-                            <p className="mt-1 text-sm text-muted-foreground">&quot;{detail.human_notes}&quot;</p>
+                            <p className="mt-1 text-sm text-muted-foreground line-clamp-4">&quot;{detail.human_notes}&quot;</p>
                           )}
                           {detail.decided_at && (
                             <p className="mt-1 text-xs text-muted-foreground">

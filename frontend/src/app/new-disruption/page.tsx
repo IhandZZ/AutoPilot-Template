@@ -208,22 +208,6 @@ export default function NewDisruptionPage() {
     }, 4000)
   }, [stopPolling, loadRecent])
 
-  // Jump back into a previously submitted notice — fetches its current
-  // status and resumes polling if it hasn't finished yet.
-  const selectNotice = useCallback(async (noticeId: string) => {
-    try {
-      const res = await apiClient.get<NoticeStatus>(`/api/notices/${noticeId}/status`)
-      setStatus(res)
-      if (!['resolved', 'auto_resolved'].includes(res.stage)) {
-        pollStatus(noticeId)
-      } else {
-        stopPolling()
-      }
-    } catch (err) {
-      console.error('[New Disruption] failed to load notice', err)
-    }
-  }, [pollStatus, stopPolling])
-
   const handleSubmit = async () => {
     if (!messageBody.trim()) return
     setIsSubmitting(true)
@@ -338,11 +322,15 @@ export default function NewDisruptionPage() {
     const costAvoided = n.incident?.cost_avoided_myr ?? null
 
     return (
-      <button
+      // A real page navigation (not an in-place panel swap on this same
+      // page) — each notice gets its own shareable/bookmarkable URL under
+      // /new-disruption/[noticeId], so reviewing a past case is an
+      // auditable trail rather than transient client-side state.
+      <Link
         key={n.notice_id}
-        onClick={() => selectNotice(n.notice_id)}
+        href={`/new-disruption/${n.notice_id}`}
         className={cn(
-          'w-full text-left rounded-lg border-l-4 p-4 transition-all',
+          'block w-full text-left rounded-lg border-l-4 p-4 transition-all',
           style.border,
           style.bg,
           isSelected ? 'ring-2 ring-brand-cornflower/50' : 'hover:shadow-md'
@@ -407,7 +395,7 @@ export default function NewDisruptionPage() {
             {decidedBy ? ` by ${decidedBy}` : ''}
           </p>
         )}
-      </button>
+      </Link>
     )
   }
 

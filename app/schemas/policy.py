@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class PolicyConfigCreate(BaseModel):
@@ -10,10 +10,29 @@ class PolicyConfigCreate(BaseModel):
     value: str
     description: str | None = None
 
+    # `value` is always stored as text in exception_config, but callers
+    # (e.g. the AI-analysis wizard, which extracts numeric thresholds like
+    # `12` from natural language) may send a raw JSON number instead of a
+    # string. Coerce rather than reject — this is the actual root cause of
+    # a 422 on save whenever the AI-suggested value was numeric.
+    @field_validator("value", mode="before")
+    @classmethod
+    def _coerce_value_to_str(cls, v: Any) -> Any:
+        if isinstance(v, (int, float, bool)):
+            return str(v)
+        return v
+
 
 class PolicyConfigUpdate(BaseModel):
     value: str | None = None
     description: str | None = None
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def _coerce_value_to_str(cls, v: Any) -> Any:
+        if isinstance(v, (int, float, bool)):
+            return str(v)
+        return v
 
 
 class PolicyOut(BaseModel):

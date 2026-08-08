@@ -283,6 +283,9 @@ export default function AIPoliciesPage() {
       setActiveTab('policies')
     } catch (err) {
       console.error('[Policies] failed to create', err)
+      // Re-throw so callers (e.g. CreateWithAI's wizard) can show their own
+      // error state instead of the save silently no-op'ing.
+      throw err
     }
   }
 

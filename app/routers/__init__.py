@@ -7,6 +7,7 @@ Note: File endpoints are defined in main.py to maintain proper path ordering.
 
 from .admin import router as admin_router
 from .ai_chat import router as ai_chat_router
+from .ai_policies import router as ai_policies_router
 from .audit import router as audit_router
 from .auth import router as auth_router
 from .dashboard import router as dashboard_router
@@ -31,6 +32,7 @@ __all__ = [
     "policies_router",
     "insights_router",
     "ai_chat_router",
+    "ai_policies_router",
     "notices_router",
     "dashboard_router",
 ]

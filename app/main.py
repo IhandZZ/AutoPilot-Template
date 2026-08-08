@@ -38,6 +38,7 @@ from .middleware import AuditMiddleware
 from .routers import (
     admin_router,
     ai_chat_router,
+    ai_policies_router,
     audit_router,
     auth_router,
     dashboard_router,
@@ -169,6 +170,10 @@ api_router.include_router(data_manager_router)
 
 # AI Policies — live exception_config rules (editable, evaluations logged)
 api_router.include_router(policies_router)
+
+# AI Policies wizard — analyze/conflict-check/save for the Create-with-AI
+# and Edit-modal flows, writing through the same exception_config rows
+api_router.include_router(ai_policies_router)
 
 # AI Insights — statistical analysis over live Supabase data
 api_router.include_router(insights_router)

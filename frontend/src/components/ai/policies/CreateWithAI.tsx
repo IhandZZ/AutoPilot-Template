@@ -249,8 +249,9 @@ export function CreateWithAI({ onPolicyCreate, onCancel }: CreateWithAIProps) {
         tags,
         priority,
       })
-    } catch {
-      setError('Failed to save policy. Please try again.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save policy. Please try again.')
+    } finally {
       setIsSaving(false)
     }
   }, [policyName, description, input, policyType, analysis, conflictResult, tags, priority, onPolicyCreate])

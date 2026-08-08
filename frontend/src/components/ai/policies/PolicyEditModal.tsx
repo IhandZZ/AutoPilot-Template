@@ -72,9 +72,11 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
   const [isSaving, setIsSaving] = useState(false)
   const [tagInput, setTagInput] = useState('')
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic')
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Initialize form when policy changes
   useEffect(() => {
+    setSaveError(null)
     if (policy) {
       setFormData({
         name: policy.name,
@@ -157,6 +159,7 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
     if (!formData.name.trim() || !formData.natural_language.trim()) return
 
     setIsSaving(true)
+    setSaveError(null)
     try {
       const payload = {
         name: formData.name,
@@ -182,6 +185,7 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
       onClose()
     } catch (error) {
       console.error('Save failed:', error)
+      setSaveError(error instanceof Error ? error.message : 'Failed to save policy. Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -592,6 +596,12 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+            {saveError && (
+              <div className="mr-auto flex items-center gap-2 text-sm text-red-700">
+                <Icons.alertCircle className="h-4 w-4 flex-shrink-0" />
+                {saveError}
+              </div>
+            )}
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>

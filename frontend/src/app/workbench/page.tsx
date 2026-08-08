@@ -71,6 +71,45 @@ function decisionKind(decision: string | null): 'approve' | 'reject' | 'modify' 
   return null
 }
 
+// Card container styling: for a resolved item, the decision (what actually
+// happened) is more useful to scan at a glance than severity (which — as
+// noted when every queued case turned out HIGH — can end up looking
+// uniform across the whole list). Pending items have no decision yet, so
+// they keep the severity-based coloring.
+function cardStyle(item: WorkbenchItemSummary) {
+  if (item.status !== 'pending') {
+    switch (decisionKind(item.human_decision)) {
+      case 'approve':
+        return {
+          bg: 'bg-emerald-50/70',
+          border: 'border-emerald-200',
+          badge: 'bg-emerald-100 text-emerald-700',
+          icon: Icons.checkCircle,
+          iconColor: 'text-emerald-600',
+        }
+      case 'reject':
+        return {
+          bg: 'bg-red-50/70',
+          border: 'border-red-200',
+          badge: 'bg-red-100 text-red-600',
+          icon: Icons.close,
+          iconColor: 'text-red-600',
+        }
+      case 'modify':
+        return {
+          bg: 'bg-blue-50/70',
+          border: 'border-blue-200',
+          badge: 'bg-blue-100 text-blue-700',
+          icon: Icons.edit,
+          iconColor: 'text-blue-600',
+        }
+      default:
+        break
+    }
+  }
+  return severityConfig(item.severity)
+}
+
 function decisionBadgeStyle(decision: string | null) {
   switch (decisionKind(decision)) {
     case 'approve':
@@ -130,6 +169,21 @@ export default function WorkbenchPage() {
   const [isSubmitting, setIsSubmitting] = useState<DecisionType | null>(null)
   const [showRawContext, setShowRawContext] = useState(false)
 
+  // Stat cards need the TRUE totals regardless of which tab is active — kept
+  // as a separate, always-unfiltered fetch so switching to "Resolved" (or
+  // any single-status tab) doesn't make "Pending Review" read 0 just
+  // because no pending items happen to be in the currently displayed list.
+  const [statsItems, setStatsItems] = useState<WorkbenchItemSummary[]>([])
+
+  const loadStats = useCallback(async () => {
+    try {
+      const data = await apiClient.get<WorkbenchItemSummary[]>('/api/workbench/items?limit=100')
+      setStatsItems(data)
+    } catch (err) {
+      console.error('[Workbench] failed to load stats', err)
+    }
+  }, [])
+
   const loadItems = useCallback(async () => {
     setIsLoading(true)
     try {
@@ -147,6 +201,10 @@ export default function WorkbenchPage() {
   useEffect(() => {
     loadItems()
   }, [loadItems])
+
+  useEffect(() => {
+    loadStats()
+  }, [loadStats])
 
   const loadDetail = useCallback(async (id: number) => {
     setIsDetailLoading(true)
@@ -180,7 +238,7 @@ export default function WorkbenchPage() {
         decided_by: 'Dev User',
         modified_option: decision === 'modify' ? modifiedOption : null,
       })
-      await loadItems()
+      await Promise.all([loadItems(), loadStats()])
       setSelectedId(null)
       setDetail(null)
     } catch (err) {
@@ -190,8 +248,9 @@ export default function WorkbenchPage() {
     }
   }
 
-  const pendingCount = items.filter((i) => i.status === 'pending').length
-  const totalAtRisk = items
+  const pendingCount = statsItems.filter((i) => i.status === 'pending').length
+  const resolvedCount = statsItems.filter((i) => i.status === 'resolved').length
+  const totalAtRisk = statsItems
     .filter((i) => i.status === 'pending')
     .reduce((sum, i) => sum + (i.value_at_risk_myr || 0), 0)
 
@@ -207,7 +266,7 @@ export default function WorkbenchPage() {
             Exceptions the AI Employee couldn&apos;t resolve on its own — reviewed and decided here.
           </p>
         </div>
-        <Button variant="outline" onClick={() => loadItems()} disabled={isLoading}>
+        <Button variant="outline" onClick={() => { loadItems(); loadStats() }} disabled={isLoading}>
           <Icons.loader className={cn('mr-2 h-4 w-4', isLoading && 'animate-spin')} />
           Refresh
         </Button>
@@ -217,7 +276,7 @@ export default function WorkbenchPage() {
       <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         {[
           { value: pendingCount, label: 'Pending Review', icon: Icons.alertTriangle, bg: 'bg-amber-100', color: 'text-amber-600' },
-          { value: items.filter((i) => i.status === 'resolved').length, label: 'Resolved', icon: Icons.check, bg: 'bg-emerald-100', color: 'text-emerald-600' },
+          { value: resolvedCount, label: 'Resolved', icon: Icons.check, bg: 'bg-emerald-100', color: 'text-emerald-600' },
           { value: formatMYR(totalAtRisk), label: 'Value at Risk (Pending)', icon: Icons.activity, bg: 'bg-brand-navy/10', color: 'text-brand-navy' },
         ].map((stat) => (
           <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-4">
@@ -273,7 +332,7 @@ export default function WorkbenchPage() {
             </Card>
           ) : (
             items.map((item) => {
-              const sev = severityConfig(item.severity)
+              const sev = cardStyle(item)
               const SevIcon = sev.icon
               const isSelected = selectedId === item.id
               return (
@@ -296,7 +355,7 @@ export default function WorkbenchPage() {
                         <span className="font-semibold text-foreground text-sm">
                           {item.notice_id || `Item #${item.id}`}
                         </span>
-                        <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase', sev.badge)}>
+                        <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase', severityConfig(item.severity).badge)}>
                           {item.severity || 'unknown'}
                         </span>
                         {item.status !== 'pending' && (

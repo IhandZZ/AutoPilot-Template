@@ -1,6 +1,29 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
+// FastAPI's default validation-error shape puts `detail` as an array of
+// {loc, msg, type} objects rather than a plain string — rendering that
+// directly (or via String()) produces the unhelpful "[object Object]".
+// Flatten it into a readable message instead.
+function stringifyErrorDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item) {
+          const loc = 'loc' in item && Array.isArray((item as { loc?: unknown[] }).loc)
+            ? (item as { loc: unknown[] }).loc.slice(-1)[0]
+            : null
+          return loc ? `${loc}: ${(item as { msg: string }).msg}` : String((item as { msg: string }).msg)
+        }
+        return typeof item === 'string' ? item : JSON.stringify(item)
+      })
+      .join('; ')
+  }
+  if (detail && typeof detail === 'object') return JSON.stringify(detail)
+  return ''
+}
+
 /**
  * A robust API client that handles authentication and base path resolution.
  *
@@ -35,7 +58,7 @@ async function apiClientFetch<T = unknown>(endpoint: string, options: RequestIni
     const errorData = await response.json().catch(() => ({
       detail: response.statusText,
     }))
-    throw new Error(errorData.detail || 'An API error occurred.')
+    throw new Error(stringifyErrorDetail(errorData?.detail) || 'An API error occurred.')
   }
 
   // Handle responses with no content

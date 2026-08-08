@@ -276,7 +276,20 @@ def update_ai_policy(policy_id: str, payload: AIPolicySave, db: Session = Depend
     row = db.query(ExceptionConfig).filter(ExceptionConfig.key == policy_id).first()
     if row is None:
         raise HTTPException(status_code=404, detail="Policy not found")
-    row.value = _extract_value(payload)
+
+    # BUG (fixed): this used to call _extract_value() unconditionally, which
+    # falls back to dumping the natural_language *description* text into
+    # `value` whenever there's no structured DSL condition. Since almost
+    # every real policy here is edited via the Basic Settings tab (no DSL),
+    # that silently overwrote live numeric thresholds — e.g. it turned
+    # value_at_risk_high's "300000" into a full sentence, which Auto can no
+    # longer compare against a real number. Editing the description should
+    # never change the enforced value. Only touch `value` when the payload
+    # actually carries a structured DSL condition value (the Structured
+    # Builder / "Generate Rules with AI" path) — otherwise leave the live
+    # threshold exactly as it was.
+    if payload.dsl and payload.dsl.get("conditions") and payload.dsl["conditions"][0].get("value") is not None:
+        row.value = str(payload.dsl["conditions"][0]["value"])
     row.description = payload.description or payload.natural_language
     db.commit()
     db.refresh(row)

@@ -8,6 +8,7 @@ statistics over real rows — not fabricated demo content.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 from ..core.supabase_db import get_supabase_db
 from ..models.supabase_models import ExceptionConfig, PolicyEvaluation, SupplierScorecard, WorkbenchItem
 from ..schemas.insights import ActionItem, Insight, InsightsResponse, Pattern, SuggestedPolicy
+from ..services.rule_names import RULE_NAME_MAP
 
 log = logging.getLogger(__name__)
 
@@ -240,6 +242,103 @@ def _generate(db: Session) -> InsightsResponse:
                     created_at=now,
                 )
             )
+
+        # --- Self-learning: per-rule human-decision pattern -----------------
+        # Bonus criterion: "self-learning where a human correction at the
+        # Workbench changes future behavior." The insight above is a global
+        # override rate, useful but not actionable on its own. This breaks
+        # it down per escalation rule (workbench_items.reason carries the
+        # rule_N tag(s) that routed the case here — see rule_names.py) and,
+        # for any rule backed by a real numeric exception_config threshold,
+        # turns a *consistent* human pattern into a concrete one-click
+        # SuggestedPolicy — the same apply-to-policies path already wired in
+        # the frontend. Two distinct signals, both genuinely learned from
+        # live human decisions rather than hardcoded:
+        #   - consistent APPROVE on a rule  -> over-escalating, safe to relax
+        #   - consistent REJECT/MODIFY on a rule -> escalation is warranted
+        #     but the recommended action is wrong; flagged for review, no
+        #     value threshold to safely auto-adjust so no suggested_policy.
+        config_rows = {c.key: c.value for c in db.query(ExceptionConfig).all()}
+        rule_stats: dict[str, dict[str, int]] = {}
+        for item in resolved_items:
+            if not item.reason or not item.human_decision:
+                continue
+            for tag in re.findall(r"rule_\d+", item.reason):
+                stats = rule_stats.setdefault(tag, {"total": 0, "approve": 0, "override": 0})
+                stats["total"] += 1
+                decision = item.human_decision.lower()
+                if decision.startswith("approve"):
+                    stats["approve"] += 1
+                elif decision.startswith("reject") or decision.startswith("modify"):
+                    stats["override"] += 1
+
+        MIN_SAMPLE = 3
+        for rule_tag, stats in sorted(rule_stats.items()):
+            total = stats["total"]
+            if total < MIN_SAMPLE:
+                continue
+            config_key = RULE_NAME_MAP.get(rule_tag)
+            approve_rate = stats["approve"] / total
+            override_rate_rule = stats["override"] / total
+            readable_name = (config_key or rule_tag).replace("_", " ")
+
+            if approve_rate >= 0.7 and config_key and config_key in config_rows:
+                current_raw = config_rows[config_key]
+                try:
+                    current_val = float(current_raw)
+                except (TypeError, ValueError):
+                    current_val = None
+                suggested_policy = None
+                if current_val is not None:
+                    suggested_policy = SuggestedPolicy(
+                        key=config_key,
+                        value=str(round(current_val * 1.2, 2) if current_val != int(current_val) else round(current_val * 1.2)),
+                        description=(
+                            f"Self-learned from {total} Workbench decisions: humans approved the AI's "
+                            f"recommendation without changes {approve_rate:.0%} of the time on "
+                            f"'{config_key}'-triggered cases — relaxing the threshold to reduce "
+                            "unnecessary human review."
+                        ),
+                    )
+                insights.append(
+                    Insight(
+                        id=f"self-learn-relax-{rule_tag}",
+                        type="recommendation",
+                        severity="info",
+                        title=f"Humans keep approving '{readable_name}' escalations as-is",
+                        description=(
+                            f"{stats['approve']} of {total} Workbench cases routed here by {readable_name} "
+                            f"were approved with no changes ({approve_rate:.0%}) — this rule may be "
+                            "escalating cases that don't actually need a human."
+                        ),
+                        data={"rule": rule_tag, "config_key": config_key, "approve_rate": round(approve_rate, 2), "sample_size": total},
+                        suggested_action=f"Relax the {config_key} threshold" if config_key else "Review this rule's threshold",
+                        action_type="create_policy" if suggested_policy else "investigate",
+                        suggested_policy=suggested_policy,
+                        confidence=min(0.95, 0.5 + total * 0.05),
+                        created_at=now,
+                    )
+                )
+            elif override_rate_rule >= 0.6:
+                insights.append(
+                    Insight(
+                        id=f"self-learn-review-{rule_tag}",
+                        type="recommendation",
+                        severity="warning",
+                        title=f"'{readable_name}' recommendations keep getting overridden",
+                        description=(
+                            f"{stats['override']} of {total} Workbench cases routed here by {readable_name} "
+                            f"were rejected or modified by a human ({override_rate_rule:.0%}) — the "
+                            "escalation itself looks correct, but the AI's recommended action for "
+                            "these cases likely needs review, not the threshold."
+                        ),
+                        data={"rule": rule_tag, "config_key": config_key, "override_rate": round(override_rate_rule, 2), "sample_size": total},
+                        suggested_action="Review recent rejected/modified decisions for this rule",
+                        action_type="investigate",
+                        confidence=min(0.9, 0.5 + total * 0.05),
+                        created_at=now,
+                    )
+                )
 
     # --- Value delivered ----------------------------------------------------
     total_cost_avoided = sum(float(s.total_cost_avoided_myr or 0) for s in suppliers)

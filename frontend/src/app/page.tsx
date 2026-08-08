@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { CardWatermark } from '@/components/ui/card-watermark'
 import { Icons } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
-import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 // ============================================================================
 // Types — mirrors app/schemas/dashboard.py
@@ -45,6 +45,20 @@ interface DashboardSummary {
   high_risk_suppliers: number
   recent_incidents: RecentIncident[]
   top_risk_suppliers: TopRiskSupplier[]
+}
+
+// Mirrors app/schemas/insights.py — only the fields the dashboard card needs.
+interface Insight {
+  id: string
+  type: string
+  severity: string
+  title: string
+  description: string
+  suggested_action: string | null
+}
+
+interface InsightsResponse {
+  insights: Insight[]
 }
 
 // Animation variants
@@ -138,22 +152,189 @@ function StatCard({ title, value, suffix = '', icon: Icon, subtext, colorClass, 
   )
 }
 
-function HeroSection({ userName, summary }: { userName?: string; summary: DashboardSummary | null }) {
+// Overall operational state, condensed into one glance instead of making the
+// user cross-reference several numbers to figure out how things are going.
+function operationalStatus(summary: DashboardSummary | null, insights: Insight[]): {
+  label: string
+  dot: string
+  text: string
+} {
+  if (!summary) return { label: 'Loading', dot: 'bg-gray-300', text: 'text-muted-foreground' }
+  const hasCritical = insights.some((i) => i.severity.toLowerCase() === 'critical')
+  if (hasCritical || summary.pending_exceptions >= 5) {
+    return { label: 'Needs attention', dot: 'bg-red-500', text: 'text-red-700' }
+  }
+  if (summary.pending_exceptions > 0) {
+    return { label: 'Reviewing exceptions', dot: 'bg-amber-500', text: 'text-amber-700' }
+  }
+  return { label: 'All clear', dot: 'bg-emerald-500', text: 'text-emerald-700' }
+}
+
+function HeroSection({
+  userName,
+  summary,
+  insights,
+}: {
+  userName?: string
+  summary: DashboardSummary | null
+  insights: Insight[]
+}) {
   const firstName = userName?.split(' ')[0] || 'there'
+  const status = operationalStatus(summary, insights)
   return (
     <motion.div className="col-span-12 py-2" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-      <h1 className="text-display-3 font-bold tracking-tight text-brand-navy lg:text-display-2">
-        Procurement Exception <br className="hidden sm:block" />
-        <span className="text-gradient">Command Center.</span>
-      </h1>
-      <p className="mt-4 text-lg font-light text-muted-foreground">
-        Welcome back, {firstName}.{' '}
-        {summary
-          ? summary.pending_exceptions > 0
-            ? `${summary.pending_exceptions} exception${summary.pending_exceptions === 1 ? '' : 's'} need${summary.pending_exceptions === 1 ? 's' : ''} your review.`
-            : 'All exceptions are clear right now.'
-          : 'Loading live status...'}
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-display-3 font-bold tracking-tight text-brand-navy lg:text-display-2">
+          Procurement Exception <br className="hidden sm:block" />
+          <span className="text-gradient">Command Center.</span>
+        </h1>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <span className={cn('inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold shadow-sm', status.text)}>
+          <span className={cn('h-2 w-2 rounded-full', status.dot)} />
+          {status.label}
+        </span>
+        <p className="text-lg font-light text-muted-foreground">
+          Welcome back, {firstName}.{' '}
+          {summary
+            ? summary.pending_exceptions > 0
+              ? `${summary.pending_exceptions} exception${summary.pending_exceptions === 1 ? '' : 's'} need${summary.pending_exceptions === 1 ? 's' : ''} your review.`
+              : 'All exceptions are clear right now.'
+            : 'Loading live status...'}
+        </p>
+      </div>
+    </motion.div>
+  )
+}
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return <p className="text-micro font-semibold uppercase tracking-wider text-brand-muted">{children}</p>
+}
+
+function QuickActions() {
+  return (
+    <motion.div variants={itemVariants} className="flex flex-wrap gap-3">
+      <Link
+        href="/new-disruption"
+        className="inline-flex items-center gap-2 rounded-lg bg-brand-navy px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform hover:-translate-y-0.5"
+      >
+        <Icons.zap className="h-4 w-4" strokeWidth={1.5} />
+        Submit New Disruption
+      </Link>
+      <Link
+        href="/workbench"
+        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-navy shadow-sm transition-transform hover:-translate-y-0.5"
+      >
+        <Icons.workbench className="h-4 w-4" strokeWidth={1.5} />
+        Review Workbench
+      </Link>
+      <Link
+        href="/ai/insights"
+        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-navy shadow-sm transition-transform hover:-translate-y-0.5"
+      >
+        <Icons.sparkles className="h-4 w-4" strokeWidth={1.5} />
+        View AI Insights
+      </Link>
+    </motion.div>
+  )
+}
+
+// Only appears when there's something worth interrupting the user for, so it
+// never becomes noise on a genuinely quiet day.
+function AttentionBanner({ summary, insights }: { summary: DashboardSummary | null; insights: Insight[] }) {
+  if (!summary) return null
+  const worst = insights.find((i) => i.severity.toLowerCase() === 'critical') || insights.find((i) => i.severity.toLowerCase() === 'high')
+  if (summary.pending_exceptions === 0 && !worst) return null
+
+  const isCritical = !!insights.find((i) => i.severity.toLowerCase() === 'critical')
+  // Route to wherever the action actually lives: a real pending exception
+  // belongs in the Workbench, but a general risk observation (like "X is
+  // your highest-risk supplier") has nothing queued there — it belongs on
+  // the Insights page, where its full detail and suggested action are shown.
+  const hasPending = summary.pending_exceptions > 0
+  const targetHref = hasPending ? '/workbench' : '/ai/insights'
+  const ctaLabel = hasPending ? 'Review Now' : 'View Insight'
+  return (
+    <motion.div
+      variants={itemVariants}
+      className={cn(
+        'flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between',
+        isCritical ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <Icons.alertTriangle className={cn('mt-0.5 h-5 w-5 shrink-0', isCritical ? 'text-red-600' : 'text-amber-600')} strokeWidth={1.5} />
+        <div>
+          <p className={cn('text-sm font-semibold', isCritical ? 'text-red-800' : 'text-amber-800')}>
+            {hasPending
+              ? `${summary.pending_exceptions} exception${summary.pending_exceptions === 1 ? '' : 's'} waiting for your review`
+              : worst?.title}
+          </p>
+          {worst && (
+            <p className="mt-0.5 text-xs text-muted-foreground">{worst.suggested_action || worst.title}</p>
+          )}
+        </div>
+      </div>
+      <Link href={targetHref} className="shrink-0">
+        <button
+          className={cn(
+            'rounded-lg px-4 py-2 text-xs font-semibold text-white transition-colors',
+            isCritical ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
+          )}
+        >
+          {ctaLabel}
+        </button>
+      </Link>
+    </motion.div>
+  )
+}
+
+// Replaces a bare "Pending Exceptions" number with a resolved-vs-pending
+// ring, so resolution progress reads visually instead of requiring the user
+// to do the subtraction themselves.
+function ResolutionRingCard({ summary, delay }: { summary: DashboardSummary | null; delay: number }) {
+  const pending = summary?.pending_exceptions ?? 0
+  const resolved = summary?.resolved_exceptions ?? 0
+  const total = pending + resolved
+  const data =
+    total > 0
+      ? [
+          { name: 'Pending', value: pending, color: '#dc2626' },
+          { name: 'Resolved', value: resolved, color: '#059669' },
+        ]
+      : [{ name: 'None', value: 1, color: '#e5e7eb' }]
+
+  return (
+    <motion.div variants={itemVariants} initial="hidden" animate="visible" transition={{ delay }} whileHover={{ y: -4 }}>
+      <Link href="/workbench">
+        <Card className="group relative h-full cursor-default overflow-hidden">
+          <CardWatermark opacity={3} scale={0.9} />
+          <CardContent className="relative z-10 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-2">
+                <p className="text-micro uppercase text-brand-muted transition-colors duration-200 group-hover:text-brand-cornflower">
+                  Pending Exceptions
+                </p>
+                <p className="font-display text-[2.25rem] font-bold leading-none tracking-tight text-brand-navy">
+                  <AnimatedNumber value={pending} />
+                </p>
+                <p className="text-xs font-medium text-muted-foreground">{resolved} resolved</p>
+              </div>
+              <div className="h-16 w-16 shrink-0">
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie data={data} dataKey="value" innerRadius={20} outerRadius={30} startAngle={90} endAngle={-270} strokeWidth={0}>
+                      {data.map((d, i) => (
+                        <Cell key={i} fill={d.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
     </motion.div>
   )
 }
@@ -186,6 +367,25 @@ function riskHexColor(band: string | null): string {
   }
 }
 
+// Rank + styling for insight severities, so the dashboard can show the most
+// urgent AI suggestions first without the user having to read every number
+// on the page to figure out what matters.
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, warning: 2, medium: 2, low: 3, info: 4 }
+
+function insightSeverityStyle(severity: string) {
+  switch (severity.toLowerCase()) {
+    case 'critical':
+      return { border: 'border-l-red-600', badge: 'bg-red-100 text-red-700', icon: Icons.alertTriangle }
+    case 'high':
+      return { border: 'border-l-orange-500', badge: 'bg-orange-100 text-orange-700', icon: Icons.alertTriangle }
+    case 'warning':
+    case 'medium':
+      return { border: 'border-l-amber-500', badge: 'bg-amber-100 text-amber-700', icon: Icons.lightbulb }
+    default:
+      return { border: 'border-l-blue-500', badge: 'bg-blue-100 text-blue-700', icon: Icons.info }
+  }
+}
+
 function RiskChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: TopRiskSupplier }> }) {
   if (!active || !payload || !payload.length) return null
   const s = payload[0].payload
@@ -204,13 +404,26 @@ function RiskChartTooltip({ active, payload }: { active?: boolean; payload?: Arr
 
 export default function HomePage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [insights, setInsights] = useState<Insight[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   const load = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await apiClient.get<DashboardSummary>('/api/dashboard/summary')
-      setSummary(res)
+      const [summaryRes, insightsRes] = await Promise.all([
+        apiClient.get<DashboardSummary>('/api/dashboard/summary'),
+        // Insights are a nice-to-have on this page — if the endpoint has a
+        // hiccup, the dashboard should still render its core KPIs rather
+        // than fail entirely, so this one is caught separately below.
+        apiClient.get<InsightsResponse>('/api/insights').catch(() => null),
+      ])
+      setSummary(summaryRes)
+      if (insightsRes) {
+        const sorted = [...insightsRes.insights].sort(
+          (a, b) => (SEVERITY_RANK[a.severity.toLowerCase()] ?? 5) - (SEVERITY_RANK[b.severity.toLowerCase()] ?? 5)
+        )
+        setInsights(sorted.slice(0, 3))
+      }
     } catch (err) {
       console.error('[Dashboard] failed to load summary', err)
     } finally {
@@ -224,19 +437,16 @@ export default function HomePage() {
 
   return (
     <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible">
-      <HeroSection userName="Developer" summary={summary} />
+      <HeroSection userName="Developer" summary={summary} insights={insights} />
+
+      <QuickActions />
+
+      {!isLoading && <AttentionBanner summary={summary} insights={insights} />}
 
       {/* Stats Grid */}
+      <SectionHeader>Today&apos;s Snapshot</SectionHeader>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard
-          title="Pending Exceptions"
-          value={summary?.pending_exceptions ?? 0}
-          icon={Icons.alertTriangle}
-          subtext={summary ? `${summary.resolved_exceptions} resolved` : undefined}
-          colorClass="bg-brand-navy"
-          delay={0.1}
-          href="/workbench"
-        />
+        <ResolutionRingCard summary={summary} delay={0.1} />
         <StatCard
           title="Cost Avoided"
           value={Math.round(summary?.total_cost_avoided_myr ?? 0)}
@@ -266,7 +476,62 @@ export default function HomePage() {
         />
       </div>
 
+      {/* AI Recommendations — surfaces what the AI actually suggests doing,
+          so the user isn't left to interpret raw numbers on their own. */}
+      {!isLoading && insights.length > 0 && (
+        <motion.div variants={itemVariants}>
+          <Card className="relative overflow-hidden">
+            <CardWatermark opacity={2} scale={1} />
+            <CardContent className="relative z-10 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-lg bg-brand-purple/10 p-1.5">
+                    <Icons.sparkles className="h-4 w-4 text-brand-purple" strokeWidth={1.5} />
+                  </div>
+                  <h3 className="font-display text-lg font-semibold text-brand-navy">AI Recommends</h3>
+                </div>
+                <Link href="/ai/insights" className="text-xs font-medium text-brand-cornflower hover:underline">
+                  View all insights →
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {insights.map((insight) => {
+                  const style = insightSeverityStyle(insight.severity)
+                  const Icon = style.icon
+                  return (
+                    <div
+                      key={insight.id}
+                      className={cn('rounded-lg border-l-4 bg-gray-50 p-3', style.border)}
+                    >
+                      <div className="flex items-start gap-2">
+                        <Icon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold text-foreground">{insight.title}</p>
+                            <span className={cn('rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase', style.badge)}>
+                              {insight.severity}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{insight.description}</p>
+                          {insight.suggested_action && (
+                            <p className="text-xs font-medium text-brand-navy mt-2 flex items-start gap-1">
+                              <Icons.arrowRight className="h-3 w-3 mt-0.5 shrink-0" />
+                              {insight.suggested_action}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
       {/* Recent Activity + Risk */}
+      <SectionHeader>Activity &amp; Risk</SectionHeader>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <motion.div variants={itemVariants}>
           <Card className="relative overflow-hidden h-full">

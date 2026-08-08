@@ -1,6 +1,5 @@
 # app/schemas/workbench.py
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -13,7 +12,13 @@ class WorkbenchItemSummary(BaseModel):
     supplier_id: str | None = None
     supplier_name: str | None = None
     severity: str | None = None
-    value_at_risk_myr: Decimal | None = None
+    # float, not Decimal: Pydantic serializes Decimal to JSON as a *string*
+    # (e.g. "77843.83") to avoid float precision loss, but the frontend does
+    # plain `sum + value` across pending items — JS treats `0 + "77843.83"`
+    # as string concatenation, not addition, and the resulting mangled
+    # string (two decimals stitched together) parses to NaN. float avoids
+    # this entirely by sending a real JSON number.
+    value_at_risk_myr: float | None = None
     recommended_option: str | None = None
     reason: str | None = None
     status: str | None = None

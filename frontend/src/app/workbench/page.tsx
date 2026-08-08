@@ -57,6 +57,46 @@ function severityConfig(severity: string | null) {
   }
 }
 
+// Matches by prefix, not exact value: this Command Center's own /decide
+// endpoint writes "approve"/"reject"/"modify", but Auto's separate
+// Slack-based Commander Approval flow writes straight to Supabase using its
+// own past-tense vocabulary ("approved"/"rejected") — both are real
+// decisions and both should color correctly regardless of which path wrote
+// them.
+function decisionKind(decision: string | null): 'approve' | 'reject' | 'modify' | null {
+  const d = (decision || '').toLowerCase()
+  if (d.startsWith('approv')) return 'approve'
+  if (d.startsWith('reject')) return 'reject'
+  if (d.startsWith('modif')) return 'modify'
+  return null
+}
+
+function decisionBadgeStyle(decision: string | null) {
+  switch (decisionKind(decision)) {
+    case 'approve':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'reject':
+      return 'bg-red-100 text-red-700'
+    case 'modify':
+      return 'bg-blue-100 text-blue-700'
+    default:
+      return 'bg-gray-100 text-gray-600'
+  }
+}
+
+function decisionTextColor(decision: string | null) {
+  switch (decisionKind(decision)) {
+    case 'approve':
+      return 'text-emerald-700'
+    case 'reject':
+      return 'text-red-700'
+    case 'modify':
+      return 'text-blue-700'
+    default:
+      return 'text-foreground'
+  }
+}
+
 function formatMYR(value: number | null) {
   if (value === null || value === undefined) return '—'
   return `MYR ${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
@@ -260,7 +300,7 @@ export default function WorkbenchPage() {
                           {item.severity || 'unknown'}
                         </span>
                         {item.status !== 'pending' && (
-                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase bg-gray-100 text-gray-600">
+                          <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase', decisionBadgeStyle(item.human_decision))}>
                             {item.human_decision || item.status}
                           </span>
                         )}
@@ -449,7 +489,7 @@ export default function WorkbenchPage() {
                     ) : (
                       <div className="rounded-lg bg-gray-50 p-4">
                         <p className="text-sm font-medium text-foreground">
-                          Decision: <span className="capitalize">{detail.human_decision}</span> by {detail.decided_by}
+                          Decision: <span className={cn('capitalize font-semibold', decisionTextColor(detail.human_decision))}>{detail.human_decision}</span> by {detail.decided_by}
                         </p>
                         {detail.human_notes && (
                           <p className="mt-1 text-sm text-muted-foreground">&quot;{detail.human_notes}&quot;</p>

@@ -1,6 +1,7 @@
 'use client'
 
 import { Toaster, toast as hotToast } from 'react-hot-toast'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { Icons } from './icons'
 
@@ -196,6 +197,50 @@ export const toast = {
         </div>
       ),
       { duration: 4000 }
+    )
+  },
+
+  // Persistent (does not auto-expire) notification that something is
+  // waiting on a human — used by PendingApprovalWatcher so a pending
+  // Workbench exception is visible from any page, not just the Workbench
+  // itself. Fixed id ensures re-polling updates this one toast in place
+  // instead of stacking duplicates every interval.
+  approvalNeeded: (count: number) => {
+    hotToast.custom(
+      (t) => (
+        <div
+          className={cn(
+            'flex items-start gap-3 rounded-2xl p-4',
+            'bg-white/95 backdrop-blur-xl',
+            'border border-amber-200 ring-1 ring-black/[0.03]',
+            'shadow-float',
+            t.visible ? 'animate-slide-in-right' : 'animate-fade-out'
+          )}
+        >
+          <div className='flex-shrink-0 rounded-lg bg-amber-500/10 p-1.5'>
+            <Icons.alertTriangle className='h-5 w-5 text-amber-600' strokeWidth={1.5} />
+          </div>
+          <div className='min-w-0 flex-1'>
+            <p className='text-sm font-semibold text-foreground'>
+              {count} exception{count === 1 ? '' : 's'} need{count === 1 ? 's' : ''} your review
+            </p>
+            <Link
+              href='/workbench'
+              onClick={() => hotToast.dismiss(t.id)}
+              className='mt-1 inline-block text-xs font-semibold text-brand-cornflower hover:underline'
+            >
+              Go to Workbench →
+            </Link>
+          </div>
+          <button
+            onClick={() => hotToast.dismiss(t.id)}
+            className='flex-shrink-0 rounded-lg p-1 transition-colors hover:bg-black/[0.04]'
+          >
+            <Icons.close className='h-4 w-4 text-muted-foreground' />
+          </button>
+        </div>
+      ),
+      { id: 'pending-approval', duration: Infinity }
     )
   },
 

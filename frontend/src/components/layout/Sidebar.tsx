@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,7 @@ import { Logomark } from '@/components/brand'
 import { Icons } from '@/components/ui/icons'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { apiClient } from '@/lib/api-client'
 import {
   Tooltip,
   TooltipContent,
@@ -89,6 +90,11 @@ interface NavLinkProps {
   children: React.ReactNode
   isCollapsed?: boolean
   badge?: number
+  // 'danger' is for things that genuinely need a human's attention right
+  // now (e.g. pending Workbench exceptions) — always red, regardless of
+  // whether the link happens to be active, so it reads as urgent at a
+  // glance rather than blending into the normal nav styling.
+  badgeVariant?: 'default' | 'danger'
 }
 
 function NavLink({
@@ -97,6 +103,7 @@ function NavLink({
   children,
   isCollapsed,
   badge,
+  badgeVariant = 'default',
 }: NavLinkProps) {
   const pathname = usePathname()
   const isActive = pathname === href
@@ -133,9 +140,11 @@ function NavLink({
             'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5',
             'text-[10px] font-semibold',
             'transition-transform duration-200',
-            isActive
-              ? 'bg-white/20 text-white'
-              : 'bg-brand-cornflower/20 text-brand-navy group-hover:scale-110',
+            badgeVariant === 'danger'
+              ? 'bg-red-500 text-white'
+              : isActive
+                ? 'bg-white/20 text-white'
+                : 'bg-brand-cornflower/20 text-brand-navy group-hover:scale-110',
             isCollapsed && 'absolute -right-1 -top-1 h-4 min-w-4 text-[9px]'
           )}
         >
@@ -211,9 +220,39 @@ function SidebarUser({ isCollapsed }: { isCollapsed: boolean }) {
   )
 }
 
+// Real pending-exception count, so the sidebar always reflects live
+// Workbench state rather than a hardcoded placeholder. Polled on an
+// interval (not a websocket) to match the polling pattern already used
+// elsewhere in this app (New Disruption status, etc.).
+function usePendingWorkbenchCount(): number {
+  const [count, setCount] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const items = await apiClient.get<unknown[]>('/api/workbench/items?status=pending')
+        if (!cancelled) setCount(Array.isArray(items) ? items.length : 0)
+      } catch {
+        // Sidebar badge is a nice-to-have — a failed poll just leaves the
+        // last known count rather than breaking navigation.
+      }
+    }
+    load()
+    const interval = setInterval(load, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
+  return count
+}
+
 export function Sidebar() {
   const { isCollapsed, setIsCollapsed } = useSidebar()
   const { data: session } = useSession()
+  const pendingCount = usePendingWorkbenchCount()
 
   // Check if user is admin
   const isAdmin = session?.roles?.includes('admin')
@@ -295,6 +334,8 @@ export function Sidebar() {
                     href={item.href}
                     icon={item.icon}
                     isCollapsed={isCollapsed}
+                    badge={item.href === '/workbench' ? pendingCount : undefined}
+                    badgeVariant='danger'
                   >
                     {item.label}
                   </NavLink>

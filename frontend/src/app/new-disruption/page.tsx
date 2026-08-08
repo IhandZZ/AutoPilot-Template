@@ -53,14 +53,37 @@ const TERMINAL_STAGES: NoticeStatus['stage'][] = ['resolved', 'auto_resolved', '
 
 type OutcomeCategory = 'good' | 'bad' | 'pending'
 
+// Matches by prefix: this Command Center's own decide endpoint writes
+// "reject"/"approve"/"modify", but Auto's separate Slack-based Commander
+// Approval flow writes straight to Supabase using its own past-tense
+// vocabulary ("rejected"/"approved") — both need to be recognized here.
+function isRejectDecision(value: string | null): boolean {
+  return (value || '').toLowerCase().startsWith('reject')
+}
+
 function outcomeCategory(n: NoticeStatus): OutcomeCategory {
   const humanDecision = (n.workbench_item?.human_decision as string | null) || null
   const approvalStatus = (n.incident?.approval_status as string | null) || null
 
-  if (humanDecision === 'reject' || approvalStatus === 'reject') return 'bad'
+  if (isRejectDecision(humanDecision) || isRejectDecision(approvalStatus)) return 'bad'
   if (n.stage === 'escalated') return 'bad'
   if (n.stage === 'resolved' || n.stage === 'auto_resolved') return 'good'
   return 'pending' // submitted, processing, awaiting_human
+}
+
+// STAGE_LABELS describes the *workflow phase* ("resolved" = a human decision
+// closed it out), which is accurate but reads oddly next to a red "reject"
+// badge — a rejected case is still technically "resolved" in the pipeline
+// sense, but a user glancing at a red badge that says RESOLVED reasonably
+// reads that as a contradiction. This gives the badge text specifically
+// (not the stage tracker elsewhere) a label that matches what actually
+// happened to the AI's recommendation.
+function outcomeLabel(n: NoticeStatus): string {
+  const humanDecision = (n.workbench_item?.human_decision as string | null) || null
+  const approvalStatus = (n.incident?.approval_status as string | null) || null
+  if (isRejectDecision(humanDecision) || isRejectDecision(approvalStatus)) return 'Rejected'
+  if ((humanDecision || '').toLowerCase().startsWith('modif')) return 'Modified'
+  return STAGE_LABELS[n.stage]
 }
 
 const OUTCOME_STYLES: Record<OutcomeCategory, { border: string; bg: string; badgeBg: string; badgeText: string; dot: string }> = {
@@ -342,7 +365,7 @@ export default function NewDisruptionPage() {
             )}
           </div>
           <span className={cn('rounded-full px-3 py-1 text-xs font-bold uppercase flex-shrink-0', style.badgeBg, style.badgeText)}>
-            {STAGE_LABELS[n.stage]}
+            {outcomeLabel(n)}
           </span>
         </div>
 

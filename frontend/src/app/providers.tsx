@@ -6,6 +6,7 @@ import { CommandPalette } from '@/components/CommandPalette'
 import { AIProvider } from '@/context/AIContext'
 import { CommandPaletteProvider, useCommandPalette } from '@/context/CommandPaletteContext'
 import { AIManager } from '@/components/ai/AIManager'
+import { PendingApprovalWatcher } from '@/components/PendingApprovalWatcher'
 
 // Renders the actual dialog, wired to the shared context state, so the
 // Header's search box and the Cmd+K shortcut both control the same instance.
@@ -42,6 +43,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <AIManager />
           <ToastProvider />
           <CommandPaletteMount />
+          <PendingApprovalWatcher />
         </CommandPaletteProvider>
       </AIProvider>
     </SessionProvider>

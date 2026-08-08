@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -142,9 +142,9 @@ export function PermissionMatrixTab() {
             </thead>
             <tbody>
               {Object.entries(permissionsByCategory).map(([category, perms]) => (
-                <>
+                <Fragment key={category}>
                   {/* Category Header */}
-                  <tr key={category}>
+                  <tr>
                     <td
                       colSpan={roles.length + 1}
                       className="py-2 px-4 bg-muted/30 text-xs font-semibold uppercase tracking-wider text-brand-navy"
@@ -182,7 +182,7 @@ export function PermissionMatrixTab() {
                       ))}
                     </tr>
                   ))}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

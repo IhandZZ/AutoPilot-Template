@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { apiClient } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { CardWatermark } from '@/components/ui/card-watermark'
@@ -123,17 +124,24 @@ export default function AIInsightsPage() {
   const [actions, setActions] = useState<ActionItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [appliedMessage, setAppliedMessage] = useState<string | null>(null)
   const router = useRouter()
 
   const fetchInsights = useCallback(async () => {
     setIsLoading(true)
-    // Simulate loading — replace with real API call
-    setTimeout(() => {
+    try {
+      const res = await apiClient.get<_InsightsResponse>('/api/insights')
+      setInsights(res.insights)
+      setPatterns(res.patterns)
+      setActions(res.actions)
+    } catch (err) {
+      console.error('[Insights] failed to load from backend, falling back to demo data', err)
       setInsights(DEMO_INSIGHTS)
       setPatterns(DEMO_PATTERNS)
       setActions(DEMO_ACTIONS)
+    } finally {
       setIsLoading(false)
-    }, 300)
+    }
   }, [])
 
   useEffect(() => {
@@ -142,16 +150,49 @@ export default function AIInsightsPage() {
 
   const handleAnalyze = async () => {
     setIsAnalyzing(true)
-    // Simulate analysis — replace with real API call
-    setTimeout(() => {
-      setInsights(DEMO_INSIGHTS)
-      setPatterns(DEMO_PATTERNS)
-      setActions(DEMO_ACTIONS)
+    try {
+      const res = await apiClient.post<_InsightsResponse>('/api/insights/analyze')
+      setInsights(res.insights)
+      setPatterns(res.patterns)
+      setActions(res.actions)
+    } catch (err) {
+      console.error('[Insights] analyze failed', err)
+    } finally {
       setIsAnalyzing(false)
-    }, 1500)
+    }
   }
 
+  const applySuggestedPolicy = useCallback(async (policy: { key: string; value: string; description: string }) => {
+    try {
+      await apiClient.post('/api/policies', policy)
+    } catch (err) {
+      // 409 = key already exists — update it in place instead
+      await apiClient.patch(`/api/policies/${policy.key}`, {
+        value: policy.value,
+        description: policy.description,
+      })
+    }
+  }, [])
+
   const handleInsightAction = useCallback(async (insight: Insight) => {
+    // The backend adds `suggested_policy` alongside `data` on insights whose
+    // action_type is 'create_policy' — not part of the base Insight type
+    // (defined for the original demo), so it's read via a loose cast here.
+    const suggestedPolicy = (insight as unknown as { suggested_policy?: { key: string; value: string; description: string } }).suggested_policy
+
+    if (insight.action_type === 'create_policy' && suggestedPolicy) {
+      try {
+        await applySuggestedPolicy(suggestedPolicy)
+        setAppliedMessage(`Applied "${suggestedPolicy.key}" to AI Policies.`)
+        setInsights(prev => prev.filter(i => i.id !== insight.id))
+        setTimeout(() => setAppliedMessage(null), 4000)
+      } catch (err) {
+        console.error('[Insights] failed to apply suggested policy', err)
+        setAppliedMessage('Failed to apply policy — see console for details.')
+      }
+      return
+    }
+
     // Route based on action_type
     switch (insight.action_type) {
       case 'create_policy':
@@ -164,7 +205,7 @@ export default function AIInsightsPage() {
       default:
         break
     }
-  }, [router])
+  }, [router, applySuggestedPolicy])
 
   const handleDismissInsight = useCallback(async (id: string) => {
     // Optimistic UI update
@@ -227,22 +268,22 @@ export default function AIInsightsPage() {
         </Button>
       </motion.div>
 
-      {/* Demo Data Notice */}
-      <motion.div 
-        variants={itemVariants}
-        className="rounded-lg border border-amber-200 bg-amber-50 p-4"
-      >
-        <div className="flex items-start gap-3">
-          <Icons.info className="h-5 w-5 text-amber-600 mt-0.5" />
-          <div className="flex-1">
-            <p className="font-medium text-amber-900">Demo Insights</p>
-            <p className="text-sm text-amber-700 mt-1">
-              Items marked with [DEMO] are sample data for demonstration purposes. 
-              Connect your AI backend to enable real-time analysis of your data.
-            </p>
-          </div>
-        </div>
-      </motion.div>
+      {/* Applied-policy confirmation */}
+      <AnimatePresence>
+        {appliedMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"
+          >
+            <div className="flex items-start gap-3">
+              <Icons.checkCircle className="h-5 w-5 text-emerald-600 mt-0.5" />
+              <p className="text-sm font-medium text-emerald-800">{appliedMessage}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Stats Cards */}
       <motion.div variants={itemVariants} className="grid gap-4 sm:grid-cols-3">

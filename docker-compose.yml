@@ -49,16 +49,17 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: prod
-      args:
-        - NEXTAUTH_URL=${NEXTAUTH_URL}
-        - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-        - NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH:-}
+      target: dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     ports:
       - "127.0.0.1:3001:3000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
     env_file:
       - .env
     depends_on:

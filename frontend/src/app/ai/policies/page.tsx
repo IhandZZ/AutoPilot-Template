@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { apiClient } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { CardWatermark } from '@/components/ui/card-watermark'
@@ -14,8 +15,23 @@ import { CreateWithAI } from '@/components/ai/policies/CreateWithAI'
 import { PermissionMatrixTab } from '@/components/ai/policies/PermissionMatrixTab'
 import { StructuredBuilder } from '@/components/ai/policies/StructuredBuilder'
 
+interface EvaluationSummary {
+  total_evaluations: number
+  first_evaluated_at: string | null
+  last_evaluated_at: string | null
+  by_decision: Record<string, number>
+}
+
+function slugify(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
 // ============================================================================
-// Demo Data — Replace with your own API integration
+// Demo Data — kept as a fallback if the backend is unreachable
 // ============================================================================
 
 const DEMO_POLICIES: Policy[] = [
@@ -160,6 +176,7 @@ export default function AIPoliciesPage() {
   // State
   const [policies, setPolicies] = useState<Policy[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [evalSummary, setEvalSummary] = useState<EvaluationSummary | null>(null)
   const [activeTab, setActiveTab] = useState<TabType>('policies')
   
   // Modal state
@@ -182,13 +199,21 @@ export default function AIPoliciesPage() {
   // Data — Loaded from demo data (replace with API fetch)
   // ============================================================================
 
-  const loadPolicies = useCallback(() => {
+  const loadPolicies = useCallback(async () => {
     setIsLoading(true)
-    // Simulate loading — replace with real API call
-    setTimeout(() => {
+    try {
+      const [data, summary] = await Promise.all([
+        apiClient.get<Policy[]>('/api/policies'),
+        apiClient.get<EvaluationSummary>('/api/policies/evaluations/summary').catch(() => null),
+      ])
+      setPolicies(data)
+      setEvalSummary(summary)
+    } catch (err) {
+      console.error('[Policies] failed to load from backend, falling back to demo data', err)
       setPolicies(DEMO_POLICIES)
+    } finally {
       setIsLoading(false)
-    }, 300)
+    }
   }, [])
 
   useEffect(() => {
@@ -214,13 +239,20 @@ export default function AIPoliciesPage() {
   }, [loadPolicies])
 
   const togglePolicyStatus = useCallback(async (id: string, _isActive: boolean) => {
-    // Toggle locally (replace with API call)
+    // exception_config rows don't have an is_active column — every row is a
+    // live rule the Auto Operators read on every run. Toggling isn't a
+    // meaningful backend operation here, so this stays a local UI-only
+    // affordance. Use delete to actually remove a rule.
     setPolicies(prev => prev.map(p => p.id === id ? { ...p, is_active: !p.is_active } : p))
   }, [])
 
   const deletePolicy = useCallback(async (id: string) => {
-    // Delete locally (replace with API call)
-    setPolicies(prev => prev.filter(p => p.id !== id))
+    try {
+      await apiClient.delete(`/api/policies/${id}`)
+      setPolicies(prev => prev.filter(p => p.id !== id))
+    } catch (err) {
+      console.error('[Policies] failed to delete', err)
+    }
   }, [])
 
   const handlePolicyCreate = async (policyData: {
@@ -234,28 +266,24 @@ export default function AIPoliciesPage() {
     tags: string[]
     priority: number
   }) => {
-    // Add locally (replace with API call)
-    const newPolicy: Policy = {
-      id: `user-${Date.now()}`,
-      name: policyData.name,
-      description: policyData.description,
-      natural_language: policyData.naturalLanguage,
-      summary: policyData.description,
-      policy_type: policyData.policyType,
-      dsl: policyData.dsl as Policy['dsl'],
-      refined_instruction: policyData.refinedInstruction,
-      ai_instruction: policyData.naturalLanguage,
-      entity_name: policyData.entityName,
-      is_active: true,
-      priority: policyData.priority,
-      tags: policyData.tags,
-      execution_count: 0,
-      last_executed_at: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+    const key = slugify(policyData.name)
+    // Best-effort default value: pull the first condition's value out of a
+    // structured DSL, otherwise fall back to the natural language text —
+    // exception_config stores a single scalar `value` per key.
+    const dsl = policyData.dsl as { conditions?: { value?: string }[] } | null
+    const value = dsl?.conditions?.[0]?.value ?? policyData.naturalLanguage.slice(0, 200)
+
+    try {
+      const created = await apiClient.post<Policy>('/api/policies', {
+        key,
+        value,
+        description: policyData.description || policyData.naturalLanguage,
+      })
+      setPolicies(prev => [created, ...prev])
+      setActiveTab('policies')
+    } catch (err) {
+      console.error('[Policies] failed to create', err)
     }
-    setPolicies(prev => [newPolicy, ...prev])
-    setActiveTab('policies')
   }
 
   // ============================================================================
@@ -384,12 +412,13 @@ export default function AIPoliciesPage() {
             className="space-y-6"
           >
           {/* Stats Bar - No initial animation to prevent blank flash */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             {[
               { value: stats.total, label: 'Total Policies', icon: Icons.layers, bg: 'bg-brand-navy/10', color: 'text-brand-navy' },
               { value: stats.active, label: 'Active', icon: Icons.check, bg: 'bg-emerald-100', color: 'text-emerald-600' },
               { value: stats.structured, label: 'Structured', icon: Icons.grid, bg: 'bg-blue-100', color: 'text-blue-600' },
               { value: stats.natural, label: 'Natural Language', icon: Icons.brain, bg: 'bg-purple-100', color: 'text-purple-600' },
+              { value: evalSummary?.total_evaluations ?? '—', label: 'Evaluations Logged', icon: Icons.activity, bg: 'bg-amber-100', color: 'text-amber-600' },
             ].map((stat) => (
               <motion.div 
                 key={stat.label}

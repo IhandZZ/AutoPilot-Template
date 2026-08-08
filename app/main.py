@@ -37,11 +37,18 @@ from .core.storage import GCSStorage, LocalStorage, StorageBackend
 from .middleware import AuditMiddleware
 from .routers import (
     admin_router,
+    ai_chat_router,
     audit_router,
     auth_router,
+    dashboard_router,
+    data_manager_router,
     examples_router,
     health_router,
+    insights_router,
     items_router,
+    notices_router,
+    policies_router,
+    workbench_router,
 )
 from .security import get_current_user, verify_access
 
@@ -153,6 +160,27 @@ api_router.include_router(items_router)
 
 # Authorization pattern examples
 api_router.include_router(examples_router)
+
+# AI Workbench — exception queue (Supabase-backed)
+api_router.include_router(workbench_router)
+
+# Data Manager — live integration health
+api_router.include_router(data_manager_router)
+
+# AI Policies — live exception_config rules (editable, evaluations logged)
+api_router.include_router(policies_router)
+
+# AI Insights — statistical analysis over live Supabase data
+api_router.include_router(insights_router)
+
+# AI Manager chat (Gemini-backed)
+api_router.include_router(ai_chat_router)
+
+# Disruption notice submission — triggers the real Supervity Auto Orchestrator
+api_router.include_router(notices_router)
+
+# Dashboard — real KPIs
+api_router.include_router(dashboard_router)
 
 
 # =============================================================================

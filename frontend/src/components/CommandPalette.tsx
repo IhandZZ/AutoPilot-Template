@@ -23,7 +23,10 @@ const recentItems = [
   },
 ]
 
-// Navigation items
+// Navigation items — kept in sync with the pages that actually exist in
+// this app. Previously included /settings and /brand, which don't exist
+// as pages here and would 404; also missing New Disruption and Data
+// Manager, which are real pages that were never added to the list.
 const navigationItems = [
   {
     id: 'dashboard',
@@ -32,10 +35,22 @@ const navigationItems = [
     href: '/',
   },
   {
+    id: 'new-disruption',
+    label: 'Go to New Disruption',
+    icon: Icons.zap,
+    href: '/new-disruption',
+  },
+  {
     id: 'workbench',
     label: 'Go to Workbench',
     icon: Icons.workbench,
     href: '/workbench',
+  },
+  {
+    id: 'data-manager',
+    label: 'Go to Data Manager',
+    icon: Icons.network,
+    href: '/data-manager',
   },
   {
     id: 'ai-policies',
@@ -49,51 +64,19 @@ const navigationItems = [
     icon: Icons.lightbulb,
     href: '/ai/insights',
   },
-  {
-    id: 'settings',
-    label: 'Go to Settings',
-    icon: Icons.settings,
-    href: '/settings',
-  },
-  {
-    id: 'brand',
-    label: 'Go to Brand & Design',
-    icon: Icons.palette,
-    href: '/brand',
-  },
 ]
 
-// Action items
+// Action items — only real, working actions. "Run Diagnostics" and
+// "Help & Support" were unimplemented no-ops (TODO stubs) that silently
+// did nothing when selected, so they're removed rather than left as
+// another dead click inside the same search feature.
 const actionItems = [
-  {
-    id: 'new-task',
-    label: 'Create New Task',
-    icon: Icons.plus,
-    action: 'new-task',
-  },
-  {
-    id: 'run-diagnostics',
-    label: 'Run Diagnostics',
-    icon: Icons.activity,
-    action: 'diagnostics',
-  },
   {
     id: 'refresh',
     label: 'Refresh Data',
     icon: Icons.refresh,
     action: 'refresh',
   },
-]
-
-// Settings items
-const settingsItems = [
-  {
-    id: 'settings',
-    label: 'Open Settings',
-    icon: Icons.settings,
-    href: '/settings',
-  },
-  { id: 'help', label: 'Help & Support', icon: Icons.help, action: 'help' },
 ]
 
 // Debounce hook
@@ -269,29 +252,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               className='px-2 py-1.5 text-xs font-semibold text-muted-foreground'
             >
               {actionItems.map((item) => (
-                <Command.Item
-                  key={item.id}
-                  value={item.label}
-                  onSelect={() => handleSelect(item)}
-                  className={cn(
-                    'flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5',
-                    'text-sm text-foreground',
-                    'aria-selected:bg-brand-navy aria-selected:text-white',
-                    'transition-colors'
-                  )}
-                >
-                  <item.icon className='h-4 w-4' strokeWidth={1.5} />
-                  <span>{item.label}</span>
-                </Command.Item>
-              ))}
-            </Command.Group>
-
-            {/* Settings */}
-            <Command.Group
-              heading='Settings'
-              className='px-2 py-1.5 text-xs font-semibold text-muted-foreground'
-            >
-              {settingsItems.map((item) => (
                 <Command.Item
                   key={item.id}
                   value={item.label}

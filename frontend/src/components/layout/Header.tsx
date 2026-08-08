@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
 import { Icons } from '@/components/ui/icons'
 import { useAI } from '@/context/AIContext'
+import { useCommandPalette } from '@/context/CommandPaletteContext'
 import { NotificationCenter } from '@/components/NotificationCenter'
 import {
   DropdownMenu,
@@ -207,6 +208,7 @@ interface HeaderProps {
 export function Header({ onOpenMobileMenu }: HeaderProps) {
   const pathname = usePathname()
   const breadcrumbs = getBreadcrumbs(pathname)
+  const { open: openCommandPalette } = useCommandPalette()
 
   return (
     <header
@@ -279,13 +281,14 @@ export function Header({ onOpenMobileMenu }: HeaderProps) {
       <div className='flex items-center gap-1 sm:gap-2'>
         {/* Search */}
         <div className='hidden lg:block'>
-          <SearchInput />
+          <SearchInput onOpenCommandPalette={openCommandPalette} />
         </div>
 
         {/* Mobile/tablet search button */}
         <Button
           variant='ghost'
           size='icon-sm'
+          onClick={openCommandPalette}
           className='text-muted-foreground hover:text-foreground lg:hidden'
           aria-label='Search'
         >

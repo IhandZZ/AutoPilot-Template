@@ -1,360 +1,380 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { motion, useInView } from 'framer-motion'
-import apiClient from '@/lib/api-client'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
+import { motion } from 'framer-motion'
+import { apiClient } from '@/lib/api-client'
+import { Card, CardContent } from '@/components/ui/card'
 import { CardWatermark } from '@/components/ui/card-watermark'
 import { Icons } from '@/components/ui/icons'
-import { ActivityChart } from '@/components/ActivityChart'
 import { cn } from '@/lib/utils'
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+
+// ============================================================================
+// Types — mirrors app/schemas/dashboard.py
+// ============================================================================
+
+interface RecentIncident {
+  notice_id: string | null
+  supplier_name: string | null
+  item_number: string | null
+  severity: string | null
+  action_taken: string | null
+  escalated: boolean | null
+  cost_avoided_myr: number
+  created_at: string | null
+}
+
+interface TopRiskSupplier {
+  supplier_id: string
+  supplier_name: string | null
+  risk_score: number
+  risk_band: string | null
+  incident_count: number
+}
+
+interface DashboardSummary {
+  pending_exceptions: number
+  resolved_exceptions: number
+  total_cost_avoided_myr: number
+  total_value_at_risk_myr: number
+  active_policies: number
+  total_evaluations: number
+  notices_total: number
+  notices_processed: number
+  high_risk_suppliers: number
+  recent_incidents: RecentIncident[]
+  top_risk_suppliers: TopRiskSupplier[]
+}
 
 // Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1,
-      delayChildren: 0.1,
-    },
-  },
+  visible: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.1 } },
 }
-
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.5,
-      ease: [0.25, 0.46, 0.45, 0.94],
-    },
-  },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] } },
 }
 
-// Animated number component
-function AnimatedNumber({
-  value,
-  suffix = '',
-  duration = 1000,
-}: {
-  value: number
-  suffix?: string
-  duration?: number
-}) {
+function AnimatedNumber({ value, suffix = '', duration = 900 }: { value: number; suffix?: string; duration?: number }) {
   const [displayValue, setDisplayValue] = useState(0)
-  const ref = useRef<HTMLSpanElement>(null)
-  const isInView = useInView(ref, { once: true, amount: 0.5 })
-  const hasAnimated = useRef(false)
 
+  // These stat cards sit above the fold and are visible the instant the
+  // page loads, so gate the count-up on the value actually arriving from
+  // the API rather than a scroll-triggered IntersectionObserver — the
+  // observer-based version (useInView) could get stuck reporting "not in
+  // view" for cards that are already on screen at mount, leaving the
+  // number frozen at its initial 0 even though the real data loaded fine.
   useEffect(() => {
-    if (!isInView || hasAnimated.current) return
-    hasAnimated.current = true
-
+    if (!value) {
+      setDisplayValue(0)
+      return
+    }
+    let cancelled = false
     const startTime = performance.now()
-
     const animate = (currentTime: number) => {
+      if (cancelled) return
       const elapsed = currentTime - startTime
       const progress = Math.min(elapsed / duration, 1)
       const eased = 1 - Math.pow(2, -10 * progress)
-
       setDisplayValue(Math.round(eased * value))
-
-      if (progress < 1) {
-        requestAnimationFrame(animate)
-      } else {
-        setDisplayValue(value)
-      }
+      if (progress < 1) requestAnimationFrame(animate)
+      else setDisplayValue(value)
     }
-
     requestAnimationFrame(animate)
-  }, [value, duration, isInView])
+    return () => {
+      cancelled = true
+    }
+  }, [value, duration])
 
   const formatValue = (num: number): string => {
-    if (num >= 1000) {
-      return (num / 1000).toFixed(1) + 'K'
-    }
+    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M'
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
     return num.toString()
   }
 
-  return (
-    <span ref={ref}>
-      {formatValue(displayValue)}
-      {suffix}
-    </span>
-  )
+  return <span>{formatValue(displayValue)}{suffix}</span>
 }
 
-// Stats Card Component with Bento styling
 interface StatCardProps {
   title: string
   value: number
   suffix?: string
   icon: React.ElementType
-  trend?: { value: string; positive: boolean }
+  subtext?: string
   colorClass: string
   delay?: number
+  href?: string
 }
 
-function StatCard({
-  title,
-  value,
-  suffix = '',
-  icon: Icon,
-  trend,
-  colorClass,
-  delay = 0,
-}: StatCardProps) {
-  return (
-    <motion.div
-      variants={itemVariants}
-      initial='hidden'
-      animate='visible'
-      transition={{ delay }}
-      whileHover={{ y: -4 }}
-    >
-      <Card className='group relative h-full cursor-default overflow-hidden'>
-        {/* Branded watermark texture */}
-        <CardWatermark opacity={3} scale={0.9} />
-        <CardContent className='relative z-10 p-5'>
-          <div className='flex items-start justify-between'>
-            <div className='space-y-2'>
-              {/* Micro label */}
-              <p className='text-micro uppercase text-brand-muted transition-colors duration-200 group-hover:text-brand-cornflower'>
-                {title}
-              </p>
-              {/* Display number */}
-              <p className='font-display text-[2.25rem] font-bold leading-none tracking-tight text-brand-navy'>
-                <AnimatedNumber value={value} suffix={suffix} />
-              </p>
-              {/* Trend */}
-              {trend && (
-                <motion.p
-                  className={cn(
-                    'flex items-center gap-1 text-xs font-medium',
-                    trend.positive ? 'text-emerald-600' : 'text-red-500'
-                  )}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: delay + 0.3 }}
-                >
-                  {trend.positive ? (
-                    <Icons.trendingUp className='h-3 w-3' strokeWidth={2} />
-                  ) : (
-                    <Icons.trendingUp
-                      className='h-3 w-3 rotate-180'
-                      strokeWidth={2}
-                    />
-                  )}
-                  {trend.value}
-                </motion.p>
-              )}
-            </div>
-            {/* Icon */}
-            <motion.div
-              className={cn(
-                'rounded-xl p-2.5 text-white',
-                'shadow-lg',
-                colorClass
-              )}
-              whileHover={{ scale: 1.15, rotate: 5 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 17 }}
-            >
-              <Icon className='h-5 w-5' strokeWidth={1.5} />
-            </motion.div>
+function StatCard({ title, value, suffix = '', icon: Icon, subtext, colorClass, delay = 0, href }: StatCardProps) {
+  const content = (
+    <Card className="group relative h-full cursor-default overflow-hidden">
+      <CardWatermark opacity={3} scale={0.9} />
+      <CardContent className="relative z-10 p-5">
+        <div className="flex items-start justify-between">
+          <div className="space-y-2">
+            <p className="text-micro uppercase text-brand-muted transition-colors duration-200 group-hover:text-brand-cornflower">
+              {title}
+            </p>
+            <p className="font-display text-[2.25rem] font-bold leading-none tracking-tight text-brand-navy">
+              <AnimatedNumber value={value} suffix={suffix} />
+            </p>
+            {subtext && <p className="text-xs font-medium text-muted-foreground">{subtext}</p>}
           </div>
-        </CardContent>
-      </Card>
+          <div className={cn('rounded-xl p-2.5 text-white shadow-lg', colorClass)}>
+            <Icon className="h-5 w-5" strokeWidth={1.5} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+
+  return (
+    <motion.div variants={itemVariants} initial="hidden" animate="visible" transition={{ delay }} whileHover={{ y: -4 }}>
+      {href ? <Link href={href}>{content}</Link> : content}
     </motion.div>
   )
 }
 
-// Hero Section
-function HeroSection({ userName }: { userName?: string }) {
+function HeroSection({ userName, summary }: { userName?: string; summary: DashboardSummary | null }) {
   const firstName = userName?.split(' ')[0] || 'there'
-
   return (
-    <motion.div
-      className='col-span-12 py-2'
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
-    >
-      <h1 className='text-display-3 font-bold tracking-tight text-brand-navy lg:text-display-2'>
-        Where Intelligence <br className='hidden sm:block' />
-        <span className='text-gradient'>Meets Human.</span>
+    <motion.div className="col-span-12 py-2" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+      <h1 className="text-display-3 font-bold tracking-tight text-brand-navy lg:text-display-2">
+        Procurement Exception <br className="hidden sm:block" />
+        <span className="text-gradient">Command Center.</span>
       </h1>
-      <p className='mt-4 text-lg font-light text-muted-foreground'>
-        Welcome back, {firstName}. Your AI Command Center is ready.
+      <p className="mt-4 text-lg font-light text-muted-foreground">
+        Welcome back, {firstName}.{' '}
+        {summary
+          ? summary.pending_exceptions > 0
+            ? `${summary.pending_exceptions} exception${summary.pending_exceptions === 1 ? '' : 's'} need${summary.pending_exceptions === 1 ? 's' : ''} your review.`
+            : 'All exceptions are clear right now.'
+          : 'Loading live status...'}
       </p>
     </motion.div>
   )
 }
 
-// Diagnostics Card
-function DiagnosticsCard() {
-  const [apiResponse, setApiResponse] = useState<string>('')
-  const [adminResponse, setAdminResponse] = useState<string>('')
-  const [isLoading, setIsLoading] = useState(false)
-
-  const callApi = async (
-    endpoint: string,
-    setter: React.Dispatch<React.SetStateAction<string>>
-  ) => {
-    setIsLoading(true)
-    setter('Loading...')
-    try {
-      const data = await apiClient(endpoint)
-      setter(JSON.stringify(data, null, 2))
-    } catch (error) {
-      setter(
-        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
-    } finally {
-      setIsLoading(false)
-    }
+function severityBadge(severity: string | null) {
+  switch ((severity || '').toLowerCase()) {
+    case 'high':
+    case 'critical':
+      return 'bg-red-100 text-red-700'
+    case 'medium':
+    case 'warning':
+      return 'bg-amber-100 text-amber-700'
+    default:
+      return 'bg-blue-100 text-blue-700'
   }
+}
 
+// Hex equivalents of riskBadge's Tailwind colors, for the recharts bar fill
+// (Tailwind classes don't apply to SVG fill attributes).
+function riskHexColor(band: string | null): string {
+  switch ((band || '').toLowerCase()) {
+    case 'critical':
+      return '#dc2626' // red-600
+    case 'high':
+      return '#ea580c' // orange-600
+    case 'medium':
+      return '#d97706' // amber-600
+    default:
+      return '#059669' // emerald-600
+  }
+}
+
+function RiskChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: TopRiskSupplier }> }) {
+  if (!active || !payload || !payload.length) return null
+  const s = payload[0].payload
   return (
-    <Card className='relative col-span-12 h-full overflow-hidden'>
-      <CardWatermark opacity={3} scale={1.1} />
-      <CardHeader className='relative z-10'>
-        <CardTitle className='flex items-center gap-2'>
-          <Icons.activity
-            className='h-5 w-5 text-brand-cornflower'
-            strokeWidth={1.5}
-          />
-          System Diagnostics
-        </CardTitle>
-      </CardHeader>
-      <CardContent className='relative z-10 space-y-6'>
-        <div className='space-y-3'>
-          <div className='flex items-center justify-between'>
-            <div>
-              <p className='text-sm font-medium text-foreground'>
-                Standard Authorization
-              </p>
-              <p className='mt-0.5 font-mono text-xs text-muted-foreground'>
-                /api/test
-              </p>
-            </div>
-          </div>
-          <Button
-            onClick={() => callApi('/api/test', setApiResponse)}
-            disabled={isLoading}
-            variant='outline'
-            className='w-full'
-          >
-            {isLoading ? 'Running...' : 'Run Diagnostics'}
-          </Button>
-          {apiResponse && (
-            <div className='rounded-xl border border-border/50 bg-muted/30 p-4'>
-              <pre className='overflow-x-auto font-mono text-xs text-muted-foreground'>
-                <code>{apiResponse}</code>
-              </pre>
-            </div>
-          )}
-        </div>
-
-        <div className='h-px bg-border/50' />
-
-        <div className='space-y-3'>
-          <div className='flex items-center justify-between'>
-            <div>
-              <p className='text-sm font-medium text-foreground'>
-                Admin Verification
-              </p>
-              <p className='mt-0.5 font-mono text-xs text-muted-foreground'>
-                /api/admin/dashboard
-              </p>
-            </div>
-          </div>
-          <Button
-            onClick={() => callApi('/api/admin/dashboard', setAdminResponse)}
-            disabled={isLoading}
-            variant='gradient'
-            className='w-full'
-          >
-            {isLoading ? 'Verifying...' : 'Verify Admin Access'}
-            <Icons.arrowRight className='ml-2 h-4 w-4' />
-          </Button>
-          {adminResponse && (
-            <div className='rounded-xl border border-border/50 bg-muted/30 p-4'>
-              <pre className='overflow-x-auto font-mono text-xs text-muted-foreground'>
-                <code>{adminResponse}</code>
-              </pre>
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-lg text-xs">
+      <p className="font-semibold text-foreground">{s.supplier_name || s.supplier_id}</p>
+      <p className="text-muted-foreground mt-0.5">
+        Risk score: <span className="font-semibold text-foreground">{s.risk_score.toFixed(0)}</span>
+      </p>
+      <p className="text-muted-foreground">
+        {s.incident_count} incident(s) · <span className="uppercase">{s.risk_band || 'low'}</span>
+      </p>
+    </div>
   )
 }
 
-// Main Dashboard — no auth required, renders directly
 export default function HomePage() {
-  return (
-    <motion.div
-      className='space-y-6'
-      variants={containerVariants}
-      initial='hidden'
-      animate='visible'
-    >
-      {/* Hero Section */}
-      <HeroSection userName='Developer' />
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-      {/* Stats Grid - Bento style */}
-      <div className='grid grid-cols-2 gap-4 lg:grid-cols-4'>
+  const load = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const res = await apiClient.get<DashboardSummary>('/api/dashboard/summary')
+      setSummary(res)
+    } catch (err) {
+      console.error('[Dashboard] failed to load summary', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  return (
+    <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible">
+      <HeroSection userName="Developer" summary={summary} />
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
-          title='Total Users'
-          value={10400}
-          icon={Icons.users}
-          trend={{ value: '+12%', positive: true }}
-          colorClass='bg-brand-navy'
+          title="Pending Exceptions"
+          value={summary?.pending_exceptions ?? 0}
+          icon={Icons.alertTriangle}
+          subtext={summary ? `${summary.resolved_exceptions} resolved` : undefined}
+          colorClass="bg-brand-navy"
           delay={0.1}
+          href="/workbench"
         />
         <StatCard
-          title='Active Sessions'
-          value={524}
-          icon={Icons.activity}
-          trend={{ value: '+8%', positive: true }}
-          colorClass='bg-brand-cornflower'
+          title="Cost Avoided"
+          value={Math.round(summary?.total_cost_avoided_myr ?? 0)}
+          suffix=" MYR"
+          icon={Icons.trendingUp}
+          subtext={summary ? `${Math.round(summary.total_value_at_risk_myr).toLocaleString()} MYR at risk logged` : undefined}
+          colorClass="bg-emerald-600"
           delay={0.2}
         />
         <StatCard
-          title='Success Rate'
-          value={98}
-          suffix='%'
-          icon={Icons.checkCircle}
-          trend={{ value: '+2%', positive: true }}
-          colorClass='bg-brand-purple'
+          title="Active Policies"
+          value={summary?.active_policies ?? 0}
+          icon={Icons.brain}
+          subtext={summary ? `${summary.total_evaluations} evaluations logged` : undefined}
+          colorClass="bg-brand-purple"
           delay={0.3}
+          href="/ai/policies"
         />
         <StatCard
-          title='AI Confidence'
-          value={96}
-          suffix='%'
-          icon={Icons.sparkles}
-          trend={{ value: 'Stable', positive: true }}
-          colorClass='bg-gradient-to-br from-brand-navy to-brand-purple'
+          title="High-Risk Suppliers"
+          value={summary?.high_risk_suppliers ?? 0}
+          icon={Icons.building}
+          subtext={summary ? `${summary.notices_processed}/${summary.notices_total} notices processed` : undefined}
+          colorClass="bg-gradient-to-br from-brand-navy to-brand-purple"
           delay={0.4}
+          href="/data-manager"
         />
       </div>
 
-      {/* Activity Chart - Full Width */}
-      <motion.div variants={itemVariants}>
-        <ActivityChart className='col-span-12' />
-      </motion.div>
+      {/* Recent Activity + Risk */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <motion.div variants={itemVariants}>
+          <Card className="relative overflow-hidden h-full">
+            <CardWatermark opacity={2} scale={1} />
+            <CardContent className="relative z-10 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-display text-lg font-semibold text-brand-navy">Recent Activity</h3>
+                <Link href="/ai/insights" className="text-xs font-medium text-brand-cornflower hover:underline">
+                  View Insights →
+                </Link>
+              </div>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Icons.loader className="h-6 w-6 animate-spin text-brand-cornflower" />
+                </div>
+              ) : !summary || summary.recent_incidents.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No incidents logged yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {summary.recent_incidents.map((inc, idx) => (
+                    <div key={idx} className="flex items-start justify-between gap-3 rounded-lg bg-gray-50 p-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-foreground truncate">
+                            {inc.notice_id || 'Notice'}
+                          </span>
+                          <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase', severityBadge(inc.severity))}>
+                            {inc.severity || 'unknown'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {inc.supplier_name || 'Unknown supplier'} · {inc.action_taken || (inc.escalated ? 'Escalated' : 'Auto-resolved')}
+                        </p>
+                      </div>
+                      <span className="text-xs font-medium text-emerald-600 whitespace-nowrap">
+                        {inc.cost_avoided_myr > 0 ? `+MYR ${inc.cost_avoided_myr.toLocaleString()}` : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
 
-      {/* System Diagnostics */}
-      <motion.div
-        className='grid gap-6 lg:grid-cols-12'
-        variants={itemVariants}
-      >
-        <DiagnosticsCard />
-      </motion.div>
+        <motion.div variants={itemVariants}>
+          <Card className="relative overflow-hidden h-full">
+            <CardWatermark opacity={2} scale={1} />
+            <CardContent className="relative z-10 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-display text-lg font-semibold text-brand-navy">Top Risk Suppliers</h3>
+                <Link href="/data-manager" className="text-xs font-medium text-brand-cornflower hover:underline">
+                  Data Manager →
+                </Link>
+              </div>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Icons.loader className="h-6 w-6 animate-spin text-brand-cornflower" />
+                </div>
+              ) : !summary || summary.top_risk_suppliers.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No supplier risk data yet.</p>
+              ) : (
+                <>
+                  {/* Top 5 highest-risk suppliers by risk score, color-coded
+                      by risk band (matches the badge colors used elsewhere). */}
+                  <div style={{ width: '100%', height: Math.max(summary.top_risk_suppliers.length * 44, 160) }}>
+                    <ResponsiveContainer>
+                      <BarChart
+                        data={summary.top_risk_suppliers}
+                        layout="vertical"
+                        margin={{ top: 0, right: 24, bottom: 0, left: 0 }}
+                        barCategoryGap={10}
+                      >
+                        <XAxis type="number" domain={[0, 100]} hide />
+                        <YAxis
+                          type="category"
+                          dataKey="supplier_name"
+                          width={130}
+                          tick={{ fontSize: 12, fill: '#374151' }}
+                          tickFormatter={(value: string, idx: number) =>
+                            value || summary.top_risk_suppliers[idx]?.supplier_id || 'Unknown'
+                          }
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <Tooltip content={<RiskChartTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+                        <Bar dataKey="risk_score" radius={[0, 6, 6, 0]} maxBarSize={22}>
+                          {summary.top_risk_suppliers.map((s) => (
+                            <Cell key={s.supplier_id} fill={riskHexColor(s.risk_band)} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+                    {['critical', 'high', 'medium', 'low'].map((band) => (
+                      <span key={band} className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: riskHexColor(band) }} />
+                        <span className="uppercase">{band}</span>
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
     </motion.div>
   )
 }

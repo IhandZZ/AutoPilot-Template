@@ -1,22 +1,25 @@
-import { getSession } from 'next-auth/react'
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
 /**
  * A robust API client that handles authentication and base path resolution.
+ *
+ * Note: this intentionally does NOT call next-auth's getSession() before
+ * every request. This app runs with AUTH_BYPASS=true on the backend (it
+ * ignores the Authorization header entirely) and NextAuth is configured to
+ * always auto-authenticate as "Dev User" — there's no real session check
+ * happening anywhere. Calling getSession() here added a full extra
+ * round-trip to /api/auth/session before every single API call (dashboard
+ * loads, notice status polling every 4s, recent-submissions polling every
+ * 8s, etc.), which was the single biggest source of perceived app-wide
+ * slowness. If real auth is ever wired in, re-add a token here.
+ *
  * @param endpoint The API endpoint to call, e.g., '/api/test' or '/api/admin/dashboard'.
  *                 The endpoint should include the '/api' prefix.
  * @param options Standard fetch options (method, body, etc.).
  */
 async function apiClientFetch<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const session = await getSession()
-
   const headers = new Headers(options.headers || {})
-
-  if (session?.accessToken) {
-    headers.set('Authorization', `Bearer ${session.accessToken}`)
-  }
 
   // Construct the full URL: http://localhost:8001/app1/api/test
   const fullUrl = `${API_URL}${BASE_PATH}${endpoint}`
